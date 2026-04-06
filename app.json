@@ -1,0 +1,105 @@
+{
+  "expo": {
+    "name": "TensorChat",
+    "slug": "tensorchat",
+    "version": "1.4.7",
+    "orientation": "portrait",
+    "icon": "./assets/tensorchat-dark/Assets.xcassets/AppIcon.appiconset/1024.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/icon-ready.png",
+      "supportsTablet": true,
+      "bundleIdentifier": "io.tensorpath.chat",
+      "entitlements": {
+        "com.apple.developer.kernel.extended-virtual-addressing": true,
+        "com.apple.developer.kernel.increased-memory-limit": true
+      },
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "TensorChat does not use the network for AI inference.",
+        "NSMicrophoneUsageDescription": "TensorChat needs microphone access to transcribe your voice into text messages.",
+        "NSSpeechRecognitionUsageDescription": "TensorChat uses on-device speech recognition to transcribe your voice privately on your device.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "appleTeamId": "B9DA96SH8R"
+    },
+    "android": {
+      "package": "io.tensorpath.chat",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "llama.rn",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF",
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#212121"
+          },
+          "ios": {
+            "backgroundColor": "#FFFFFF",
+            "dark": {
+              "backgroundColor": "#212121"
+            }
+          },
+          "android": {
+            "backgroundColor": "#FFFFFF",
+            "image": "./assets/tc-light-t.png",
+            "resizeMode": "contain",
+            "imageWidth": 140,
+            "dark": {
+              "backgroundColor": "#212121",
+              "image": "./assets/tc-dark-t.png"
+            }
+          }
+        }
+      ],
+      "./plugins/with-ios-launch-storyboard-cache-bust",
+      [
+        "react-native-audio-api",
+        {
+          "iosBackgroundMode": false,
+          "androidPermissions": [],
+          "androidForegroundService": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TensorChat needs access to your photo library to attach images to your messages.",
+          "cameraPermission": "TensorChat needs access to your camera to take photos for your messages."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "buildReactNativeFromSource": true,
+            "deploymentTarget": "15.5"
+          }
+        }
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a87da70b-0680-4824-ac45-5d1cfa4a6578"
+      }
+    },
+    "owner": "gi-tech"
+  }
+}

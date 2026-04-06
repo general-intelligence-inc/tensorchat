@@ -1,0 +1,34 @@
+{
+  "cli": {
+    "version": ">= 18.1.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "RNLLAMA_BUILD_FROM_SOURCE": "1"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "RNLLAMA_BUILD_FROM_SOURCE": "1"
+      }
+    },
+    "production-internal": {
+      "extends": "production",
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "RNLLAMA_BUILD_FROM_SOURCE": "1"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

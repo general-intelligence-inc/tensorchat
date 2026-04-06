@@ -1,0 +1,20 @@
+{
+  "name": "react-native-sherpa-voice",
+  "version": "0.1.0",
+  "description": "Local React Native bridge for the sherpa-onnx voice runtime.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "Apache-2.0",
+  "files": [
+    "android",
+    "index.d.ts",
+    "index.js",
+    "ios",
+    "react-native.config.js",
+    "react-native-sherpa-voice.podspec"
+  ],
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

@@ -1,0 +1,16 @@
+appId: io.tensorpath.chat
+
+# Launches the app (if needed) and waits for it to be fully ready.
+# The app shows splash screens during startup ("Preparing on-device runtime",
+# "Loading your last model locally") which can take 30-60s.
+
+---
+
+- launchApp:
+    appId: io.tensorpath.chat
+    clearState: false
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "model-picker"
+    timeout: 15000

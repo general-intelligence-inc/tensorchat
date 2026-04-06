@@ -1,0 +1,114 @@
+appId: io.tensorpath.chat
+tags:
+  - qwen-2b
+
+---
+
+# ========== SETUP ==========
+- runFlow:
+    file: ../helpers/app-ready.yaml
+- runFlow:
+    file: ../helpers/select-model.yaml
+    env:
+      MODEL_NAME: "Qwen3.5-2B Q4"
+
+# ========== TEST 1: Basic Chat ==========
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- runFlow:
+    file: ../helpers/send-message.yaml
+    env:
+      MESSAGE: "Hello"
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+# No raw markup leaked
+- assertNotVisible:
+    text: "<think>"
+- assertNotVisible:
+    text: "</think>"
+- assertNotVisible:
+    text: "<|tool_call_start|>"
+
+# ========== TEST 2: No Thinking Without Toggle ==========
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- runFlow:
+    file: ../helpers/send-message.yaml
+    env:
+      MESSAGE: "What is 2+2?"
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+- assertNotVisible:
+    text: "Reasoning"
+- assertNotVisible:
+    text: "Thought for"
+- assertNotVisible:
+    text: "<think>"
+- assertNotVisible:
+    text: "</think>"
+
+# ========== TEST 3: Thinking Toggle — Trigger + No Leak ==========
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- tapOn:
+    id: "thinking-toggle"
+- runFlow:
+    file: ../helpers/send-message.yaml
+    env:
+      MESSAGE: "What is 7 times 8?"
+- extendedWaitUntil:
+    visible:
+      text: ".*(?:Thinking|Thought for|Reasoning).*"
+    timeout: 30000
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+- assertVisible:
+    text: ".*(?:Thought for|Reasoning).*"
+- assertNotVisible:
+    text: "<think>"
+- assertNotVisible:
+    text: "</think>"
+- assertNotVisible:
+    text: "<|tool_call_start|>"
+
+# ========== TEST 4: Vision Available ==========
+- runFlow:
+    file: ../helpers/open-attach-menu.yaml
+- assertVisible:
+    text: ".*Camera.*"
+- assertVisible:
+    text: ".*Photo Library.*"
+# Don't tap Camera — it crashes on simulator ("Camera not available")
+- tapOn:
+    point: "50%,50%"
+- waitForAnimationToEnd
+
+# ========== TEST 5: Web Search ==========
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- assertVisible:
+    id: "web-search-toggle"
+- tapOn:
+    id: "web-search-toggle"
+- extendedWaitUntil:
+    visible:
+      text: ".*DuckDuckGo.*"
+    timeout: 5000
+- runFlow:
+    file: ../helpers/send-message.yaml
+    env:
+      MESSAGE: "Search the web for today's weather forecast"
+# Verify the model actually invoked web search
+- extendedWaitUntil:
+    visible:
+      text: ".*Searching.*"
+    timeout: 60000
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+# No raw markup leaked
+- assertNotVisible:
+    text: "<|tool_call_start|>"
+- assertNotVisible:
+    text: "<think>"
+- assertNotVisible:
+    text: "</think>"

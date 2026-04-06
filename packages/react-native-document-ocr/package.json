@@ -1,0 +1,20 @@
+{
+  "name": "react-native-document-ocr",
+  "version": "0.1.0",
+  "description": "Local React Native bridge for on-device PDF OCR fallback.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "files": [
+    "android",
+    "index.d.ts",
+    "index.js",
+    "ios",
+    "react-native.config.js",
+    "react-native-document-ocr.podspec"
+  ],
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

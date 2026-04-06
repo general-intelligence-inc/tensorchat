@@ -1,0 +1,12 @@
+appId: io.tensorpath.chat
+
+# Input: MESSAGE (e.g., "Hello")
+# Types a message and sends it.
+
+---
+
+- tapOn:
+    text: "Ask TensorChat"
+- inputText: ${MESSAGE}
+- tapOn:
+    id: "send-button"

@@ -1,0 +1,14 @@
+appId: io.tensorpath.chat
+tags:
+  - smoke
+
+---
+
+- launchApp:
+    appId: io.tensorpath.chat
+    clearState: false
+- waitForAnimationToEnd
+
+# Verify the app launched — the model picker should be visible
+- assertVisible:
+    id: "model-picker"

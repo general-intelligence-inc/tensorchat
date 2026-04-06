@@ -1,0 +1,62 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.npm-cache/
+build-*.ipa
+
+# macOS
+.DS_Store
+**/.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+packages/react-native-sherpa-voice/android/src/main/jniLibs/
+packages/react-native-sherpa-voice/ios/vendor/
+packages/react-native-sherpa-voice/.sherpa-vendor-version.json
+tmp
+app-store-screenshot
+.claude
+
+# IDE / editor
+.vscode/
+
+# AI assistant artifacts
+.agents/
+skills-lock.json
+
+# Xcode local overrides
+ios/.xcode.env.local
+
+docs

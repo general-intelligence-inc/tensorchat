@@ -1,0 +1,112 @@
+appId: io.tensorpath.chat
+tags:
+  - lfm-12b
+  - regression
+
+---
+
+# ========== SETUP ==========
+- runFlow:
+    file: ../helpers/app-ready.yaml
+- runFlow:
+    file: ../helpers/select-model.yaml
+    env:
+      MODEL_NAME: "LFM2.5-1.2B Q8"
+
+# ========== TEST 1: Basic Chat ==========
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- runFlow:
+    file: ../helpers/send-message.yaml
+    env:
+      MESSAGE: "Hello"
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+- assertNotVisible:
+    text: "<think>"
+- assertNotVisible:
+    text: "</think>"
+- assertNotVisible:
+    text: "<|tool_call_start|>"
+
+# ========== TEST 2: Always Thinks ==========
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- runFlow:
+    file: ../helpers/send-message.yaml
+    env:
+      MESSAGE: "What is the capital of France?"
+# Thinking section should appear without toggling
+- extendedWaitUntil:
+    visible:
+      text: ".*(?:Thinking|Thought for|Reasoning).*"
+    timeout: 30000
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+- assertVisible:
+    text: ".*(?:Thought for|Reasoning).*"
+
+# ========== TEST 3: No Thinking Leak ==========
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- runFlow:
+    file: ../helpers/send-message.yaml
+    env:
+      MESSAGE: "Explain why the sky is blue in one sentence."
+- extendedWaitUntil:
+    visible:
+      text: ".*(?:Thinking|Thought for|Reasoning).*"
+    timeout: 30000
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+- assertVisible:
+    text: ".*(?:Thought for|Reasoning).*"
+# No raw tags leaked
+- assertNotVisible:
+    text: "<think>"
+- assertNotVisible:
+    text: "</think>"
+- assertNotVisible:
+    text: "<|tool_call_start|>"
+
+# ========== TEST 4: No Vision ==========
+- runFlow:
+    file: ../helpers/open-attach-menu.yaml
+- assertVisible:
+    text: ".*Files.*"
+- tapOn:
+    text: ".*Camera.*"
+    optional: true
+- assertVisible:
+    text: ".*Files.*"
+# Tap outside the menu to dismiss it
+- tapOn:
+    point: "50%,50%"
+- waitForAnimationToEnd
+
+# ========== TEST 5: Web Search ==========
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- assertVisible:
+    id: "web-search-toggle"
+- tapOn:
+    id: "web-search-toggle"
+- extendedWaitUntil:
+    visible:
+      text: ".*DuckDuckGo.*"
+    timeout: 5000
+- runFlow:
+    file: ../helpers/send-message.yaml
+    env:
+      MESSAGE: "Search the web for today's weather forecast"
+# Verify the model actually invoked web search
+- extendedWaitUntil:
+    visible:
+      text: ".*Searching.*"
+    timeout: 60000
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+- assertNotVisible:
+    text: "<|tool_call_start|>"
+- assertNotVisible:
+    text: "<think>"

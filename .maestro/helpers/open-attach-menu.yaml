@@ -1,0 +1,12 @@
+appId: io.tensorpath.chat
+
+# Opens the attachment menu by tapping the + button.
+
+---
+
+- tapOn:
+    id: "attach-button"
+- extendedWaitUntil:
+    visible:
+      text: ".*Files.*"
+    timeout: 5000

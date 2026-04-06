@@ -1,0 +1,12 @@
+appId: io.tensorpath.chat
+
+# Waits for the model to finish generating a response.
+# The streaming cursor (▋) disappears when generation completes.
+# We wait by repeatedly checking until it's gone.
+
+---
+
+- extendedWaitUntil:
+    notVisible:
+      text: "▋"
+    timeout: 180000

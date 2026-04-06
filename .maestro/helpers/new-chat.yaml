@@ -1,0 +1,9 @@
+appId: io.tensorpath.chat
+
+# Starts a fresh chat session.
+
+---
+
+- tapOn:
+    id: "new-chat-button"
+- waitForAnimationToEnd

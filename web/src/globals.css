@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@theme {
+  /* Teal-tinted neutrals — subtle cohesion with accent */
+  --color-base: #1a1d1c;
+  --color-sidebar: #131615;
+  --color-surface: #242827;
+  --color-surface-hover: #2e3231;
+  --color-border: #2e3231;
+  --color-border-subtle: #222625;
+  --color-accent: #10A37F;
+  --color-accent-dim: #0D8A6B;
+  --color-accent-soft: #1a3d33;
+  --color-text-primary: #e8ebe9;
+  --color-text-secondary: #8a9190;
+  --color-text-tertiary: #566160;
+  --color-accent-tint: rgba(16, 163, 127, 0.10);
+  --color-user-bubble: #222625;
+
+  /* Typography: Space Grotesk (display) + DM Sans (body) */
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ── Keyframes ── */
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+/* Mesh gradient blob animations — slow, organic movement */
+@keyframes mesh-drift-1 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  25% { transform: translate(8%, -12%) scale(1.15); }
+  50% { transform: translate(-6%, 8%) scale(0.9); }
+  75% { transform: translate(12%, -4%) scale(1.08); }
+}
+
+@keyframes mesh-drift-2 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  33% { transform: translate(-10%, 6%) scale(1.1); }
+  66% { transform: translate(6%, -10%) scale(0.95); }
+}
+
+@keyframes mesh-drift-3 {
+  0%, 100% { transform: translate(0%, 0%) scale(1.05); }
+  20% { transform: translate(14%, 8%) scale(0.9); }
+  40% { transform: translate(-8%, -6%) scale(1.12); }
+  60% { transform: translate(4%, 14%) scale(0.95); }
+  80% { transform: translate(-12%, -2%) scale(1.08); }
+}
+
+@keyframes mesh-drift-4 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  50% { transform: translate(-14%, -8%) scale(1.2); }
+}
+
+@keyframes subtle-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.6; }
+}
+
+.animate-blink {
+  animation: blink 1s infinite;
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2e3231; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3d4241; }
+
+/* ── Global ── */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(16, 163, 127, 0.25);
+  color: #e8ebe9;
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

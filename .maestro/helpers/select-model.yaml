@@ -1,0 +1,36 @@
+appId: io.tensorpath.chat
+
+# Input: MODEL_NAME (e.g., "LFM2.5-350M BF16")
+# Selects and loads a model from the model picker dropdown.
+
+---
+
+# Tap the model picker pill to open the dropdown
+- tapOn:
+    id: "model-picker"
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+
+# Wait for the dropdown to show the target model, then tap it
+- extendedWaitUntil:
+    visible:
+      text: ".*${MODEL_NAME}.*"
+    timeout: 15000
+
+- tapOn:
+    text: ".*${MODEL_NAME}.*"
+
+# Dismiss the dropdown if still open (tap outside)
+- tapOn:
+    point: "50%,80%"
+- waitForAnimationToEnd
+
+# Wait for model to finish loading (the pill shows the model name when loaded)
+- extendedWaitUntil:
+    visible:
+      id: "model-picker"
+    timeout: 120000
+- waitForAnimationToEnd
+
+# Give extra time for model to fully initialize
+- waitForAnimationToEnd
