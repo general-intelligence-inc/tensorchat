@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1280px;
+    height: 640px;
+    background: #1a1d1c;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    color: #e8ebe9;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .mesh-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    pointer-events: none;
+  }
+  .blob-1 { width: 500px; height: 500px; background: rgba(16,163,127,0.12); top: -100px; left: -50px; }
+  .blob-2 { width: 400px; height: 400px; background: rgba(16,163,127,0.06); bottom: -120px; right: 100px; }
+  .blob-3 { width: 300px; height: 300px; background: rgba(13,138,107,0.08); top: 50px; right: -50px; }
+
+  .ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(16,163,127,0.05);
+    top: 50%; right: 22%;
+    transform: translate(50%, -50%);
+  }
+  .ring-1 { width: 400px; height: 400px; }
+  .ring-2 { width: 580px; height: 580px; opacity: 0.7; }
+  .ring-3 { width: 780px; height: 780px; opacity: 0.35; }
+
+  .left {
+    width: 560px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px 20px 60px 72px;
+    z-index: 1;
+  }
+
+  .logo-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .logo-icon { width: 44px; height: 44px; object-fit: contain; }
+  .logo-text {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 32px; font-weight: 700;
+    letter-spacing: -0.5px; color: #e8ebe9;
+  }
+
+  h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700; letter-spacing: -0.04em; line-height: 0.95;
+  }
+  .headline-main { font-size: 56px; color: #e8ebe9; display: block; }
+  .headline-sub {
+    font-size: 42px; color: #8a9190; display: block;
+    font-weight: 500; letter-spacing: -0.02em; margin-top: 4px;
+  }
+
+  .divider { width: 56px; height: 1px; background: rgba(16,163,127,0.5); margin: 24px 0; }
+
+  .description {
+    font-size: 16px; color: #8a9190; line-height: 1.7; max-width: 380px;
+  }
+
+  .badges { display: flex; gap: 10px; margin-top: 28px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 14px; border-radius: 16px;
+    background: rgba(16,163,127,0.08); border: 1px solid rgba(16,163,127,0.15);
+    font-size: 13px; font-weight: 500; color: #10A37F;
+  }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: #10A37F; }
+
+  .right {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding-right: 40px;
+    z-index: 1;
+  }
+
+  .phone-frame {
+    width: 220px;
+    height: 450px;
+    border-radius: 30px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(46,50,49,0.8),
+      0 25px 70px rgba(0,0,0,0.5),
+      0 0 80px rgba(16,163,127,0.04);
+    flex-shrink: 0;
+  }
+  .phone-frame img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+  }
+
+  .phone-back {
+    transform: translateY(24px);
+    opacity: 0.85;
+  }
+
+  .github-badge {
+    position: absolute;
+    bottom: 24px; right: 72px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 20px;
+    background: rgba(36,40,39,0.9); border: 1px solid rgba(46,50,49,0.8);
+    z-index: 2; font-size: 13px; color: #8a9190;
+  }
+  .github-badge svg { width: 16px; height: 16px; fill: #8a9190; }
+</style>
+</head>
+<body>
+  <div class="mesh-blob blob-1"></div>
+  <div class="mesh-blob blob-2"></div>
+  <div class="mesh-blob blob-3"></div>
+  <div class="ring ring-1"></div>
+  <div class="ring ring-2"></div>
+  <div class="ring ring-3"></div>
+
+  <div class="left">
+    <div class="logo-row">
+      <img class="logo-icon" src="../web/public/tc-logo-dark.png" alt="logo">
+      <div class="logo-text">TensorChat</div>
+    </div>
+    <h1>
+      <span class="headline-main">Private AI.</span>
+      <span class="headline-sub">Intelligence on your terms.</span>
+    </h1>
+    <div class="divider"></div>
+    <p class="description">
+      Run powerful language models entirely on your phone.
+      No cloud. No telemetry. No accounts.
+    </p>
+    <div class="badges">
+      <div class="badge"><span class="dot"></span> On-Device LLM</div>
+      <div class="badge"><span class="dot"></span> iOS & Android</div>
+      <div class="badge"><span class="dot"></span> Open Source</div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="phone-frame">
+      <img src="../web/public/screen-chat.png" alt="Chat">
+    </div>
+    <div class="phone-frame phone-back">
+      <img src="../web/public/Simulator Screenshot - iPhone Air - 2026-03-30 at 20.35.59.png" alt="Models">
+    </div>
+  </div>
+
+  <div class="github-badge">
+    <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    <span>Apache-2.0</span>
+  </div>
+</body>
+</html>

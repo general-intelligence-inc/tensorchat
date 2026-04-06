@@ -1,5 +1,9 @@
 # TensorChat
 
+<p align="center">
+  <img src="assets/social-preview.png" alt="TensorChat — Private AI. Intelligence on your terms." width="100%" />
+</p>
+
 [![Website](https://img.shields.io/badge/Website-tensorchat.app-111?logo=safari&logoColor=white)](https://tensorchat.app)
 [![App Store](https://img.shields.io/badge/App_Store-TensorChat-0D96F6?logo=apple)](https://apps.apple.com/us/app/tensorchat-private-ai/id6760141754)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
