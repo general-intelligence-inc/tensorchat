@@ -1149,70 +1149,6 @@ export function ModelCatalogScreen({
     });
   }, []);
 
-  const deleteSelectedModels = useCallback(() => {
-    if (selectedForDeletion.size === 0) return;
-
-    const count = selectedForDeletion.size;
-    Alert.alert(
-      `Delete ${count} model${count > 1 ? "s" : ""}`,
-      "These models will be removed from your device. You can re-download them later.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            for (const modelId of selectedForDeletion) {
-              const model =
-                ALL_MODELS.find((m) => m.id === modelId) ??
-                TRANSLATION_MODELS.find((m) => m.id === modelId);
-              if (!model) continue;
-              try {
-                if (loadedModelPath?.endsWith(model.filename)) {
-                  await unloadModel();
-                }
-                if (loadedTranslationModelPath?.endsWith(model.filename)) {
-                  await unloadTranslationModel();
-                }
-                await FileSystem.deleteAsync(modelFilePath(model.filename), {
-                  idempotent: true,
-                });
-                if (model.mmprojFilename) {
-                  await FileSystem.deleteAsync(
-                    modelFilePath(model.mmprojFilename),
-                    { idempotent: true },
-                  );
-                }
-              } catch {
-                // continue deleting others
-              }
-            }
-
-            setDownloadedModels((prev) => {
-              const next = new Set(prev);
-              for (const id of selectedForDeletion) next.delete(id);
-              return next;
-            });
-            setDownloadedTranslationModels((prev) => {
-              const next = new Set(prev);
-              for (const id of selectedForDeletion) next.delete(id);
-              return next;
-            });
-            setSelectedForDeletion(new Set());
-            onChatModelsChanged?.();
-          },
-        },
-      ],
-    );
-  }, [
-    selectedForDeletion,
-    loadedModelPath,
-    loadedTranslationModelPath,
-    unloadModel,
-    unloadTranslationModel,
-    onChatModelsChanged,
-  ]);
-
   const activateTranslationMode = useCallback(
     async (model: ModelConfig) => {
       if (!downloadedTranslationModels.has(model.id)) {
@@ -1412,6 +1348,93 @@ export function ModelCatalogScreen({
     downloadKokoroVoiceModelOnly,
     isKokoroAvailable,
     refreshVoiceModels,
+  ]);
+
+  const deleteSelectedModels = useCallback(() => {
+    if (selectedForDeletion.size === 0) return;
+
+    const count = selectedForDeletion.size;
+    Alert.alert(
+      `Delete ${count} model${count > 1 ? "s" : ""}`,
+      "These models will be removed from your device. You can re-download them later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            for (const modelId of selectedForDeletion) {
+              const model =
+                ALL_MODELS.find((m) => m.id === modelId) ??
+                TRANSLATION_MODELS.find((m) => m.id === modelId);
+              if (!model) continue;
+              try {
+                if (loadedModelPath?.endsWith(model.filename)) {
+                  await unloadModel();
+                }
+                if (loadedTranslationModelPath?.endsWith(model.filename)) {
+                  await unloadTranslationModel();
+                }
+                await FileSystem.deleteAsync(modelFilePath(model.filename), {
+                  idempotent: true,
+                });
+                if (model.mmprojFilename) {
+                  await FileSystem.deleteAsync(
+                    modelFilePath(model.mmprojFilename),
+                    { idempotent: true },
+                  );
+                }
+              } catch {
+                // continue deleting others
+              }
+            }
+
+            setDownloadedModels((prev) => {
+              const next = new Set(prev);
+              for (const id of selectedForDeletion) next.delete(id);
+              return next;
+            });
+            setDownloadedTranslationModels((prev) => {
+              const next = new Set(prev);
+              for (const id of selectedForDeletion) next.delete(id);
+              return next;
+            });
+
+            if (selectedForDeletion.has("__voice_stt_tts__")) {
+              try {
+                await deleteVoiceModels();
+                await refreshVoiceModels();
+              } catch { /* ignore */ }
+            }
+            if (selectedForDeletion.has("__voice_kokoro__")) {
+              try {
+                await deleteKokoroVoiceModel();
+                await refreshVoiceModels();
+              } catch { /* ignore */ }
+            }
+            if (selectedForDeletion.has("__embedding__")) {
+              try {
+                await handleDeleteEmbeddingModel();
+              } catch { /* ignore */ }
+            }
+
+            setSelectedForDeletion(new Set());
+            onChatModelsChanged?.();
+          },
+        },
+      ],
+    );
+  }, [
+    selectedForDeletion,
+    loadedModelPath,
+    loadedTranslationModelPath,
+    unloadModel,
+    unloadTranslationModel,
+    deleteVoiceModels,
+    deleteKokoroVoiceModel,
+    refreshVoiceModels,
+    handleDeleteEmbeddingModel,
+    onChatModelsChanged,
   ]);
 
   const activeVoiceDownloadKind =
@@ -1788,12 +1811,31 @@ export function ModelCatalogScreen({
                   ...downloadedChatModels,
                   ...downloadedTranslation,
                 ];
+                const hasWhisper = voiceModelsState.sttDownloaded;
+                const hasPiper = voiceModelsState.piperDownloaded;
+                const hasWhisperPiper = hasWhisper || hasPiper;
+                const hasKokoro = voiceModelsState.kokoroDownloaded;
+                const hasEmbedding = embeddingDownloaded;
+                const voiceItems: Array<{ id: string; name: string; size: string }> = [];
+                if (hasWhisperPiper)
+                  voiceItems.push({
+                    id: "__voice_stt_tts__",
+                    name: "Whisper + Piper",
+                    size: hasWhisper && hasPiper ? "~140 MB" : hasWhisper ? "~75 MB" : "~65 MB",
+                  });
+                if (hasKokoro)
+                  voiceItems.push({ id: "__voice_kokoro__", name: "Kokoro", size: "~87 MB" });
+                const allSelectableIds = [
+                  ...allDownloaded.map((m) => m.id),
+                  ...voiceItems.map((v) => v.id),
+                  ...(hasEmbedding ? ["__embedding__"] : []),
+                ];
                 const allSelected =
-                  allDownloaded.length > 0 &&
-                  allDownloaded.every((m) => selectedForDeletion.has(m.id));
+                  allSelectableIds.length > 0 &&
+                  allSelectableIds.every((id) => selectedForDeletion.has(id));
                 return (
                   <View style={styles.catalogCardBody}>
-                    {allDownloaded.length === 0 ? (
+                    {allSelectableIds.length === 0 ? (
                       <Text style={styles.downloadedEmptyHint}>
                         No models downloaded yet.
                       </Text>
@@ -1807,7 +1849,7 @@ export function ModelCatalogScreen({
                                 setSelectedForDeletion(new Set());
                               } else {
                                 setSelectedForDeletion(
-                                  new Set(allDownloaded.map((m) => m.id)),
+                                  new Set(allSelectableIds),
                                 );
                               }
                             }}
@@ -1818,59 +1860,128 @@ export function ModelCatalogScreen({
                             </Text>
                           </TouchableOpacity>
                         </View>
-                        <View style={styles.quantDivider} />
-                        {/* Model rows */}
-                        {allDownloaded.map((model, idx) => {
-                          const isSelected = selectedForDeletion.has(model.id);
-                          const isLoaded =
-                            loadedModelPath?.endsWith(model.filename) ||
-                            loadedTranslationModelPath?.endsWith(
-                              model.filename,
-                            );
+                        {/* Grouped model rows */}
+                        {([
+                          { label: "Models", items: downloadedChatModels },
+                          { label: "Translation", items: downloadedTranslation },
+                        ] as const).map((section) => {
+                          if (section.items.length === 0) return null;
                           return (
-                            <React.Fragment key={model.id}>
-                              {idx > 0 && <View style={styles.quantDivider} />}
-                              <TouchableOpacity
-                                style={styles.downloadedItemRow}
-                                onPress={() =>
-                                  toggleSelectForDeletion(model.id)
-                                }
-                                activeOpacity={0.7}
-                              >
-                                <Ionicons
-                                  name={
-                                    isSelected
-                                      ? "checkmark-circle"
-                                      : "ellipse-outline"
-                                  }
-                                  size={20}
-                                  color={
-                                    isSelected
-                                      ? colors.destructive
-                                      : colors.textTertiary
-                                  }
-                                />
-                                <Text
-                                  style={styles.quantLabel}
-                                  numberOfLines={1}
-                                >
-                                  {model.name}
-                                </Text>
-                                <Text style={styles.quantSizeBadge}>
-                                  ~{model.sizeGB.toFixed(2)} GB
-                                </Text>
-                                <View style={{ flex: 1 }} />
-                                {isLoaded && (
-                                  <Ionicons
-                                    name="checkmark-circle"
-                                    size={18}
-                                    color={colors.accent}
-                                  />
-                                )}
-                              </TouchableOpacity>
+                            <React.Fragment key={section.label}>
+                              <Text style={styles.downloadedSectionLabel}>
+                                {section.label}
+                              </Text>
+                              {section.items.map((model, idx) => {
+                                const isSelected = selectedForDeletion.has(model.id);
+                                const isLoaded =
+                                  loadedModelPath?.endsWith(model.filename) ||
+                                  loadedTranslationModelPath?.endsWith(
+                                    model.filename,
+                                  );
+                                return (
+                                  <React.Fragment key={model.id}>
+                                    {idx > 0 && <View style={styles.quantDivider} />}
+                                    <TouchableOpacity
+                                      style={styles.downloadedItemRow}
+                                      onPress={() =>
+                                        toggleSelectForDeletion(model.id)
+                                      }
+                                      activeOpacity={0.7}
+                                    >
+                                      <Ionicons
+                                        name={
+                                          isSelected
+                                            ? "checkmark-circle"
+                                            : "ellipse-outline"
+                                        }
+                                        size={20}
+                                        color={
+                                          isSelected
+                                            ? colors.destructive
+                                            : colors.textTertiary
+                                        }
+                                      />
+                                      <Text
+                                        style={styles.quantLabel}
+                                        numberOfLines={1}
+                                      >
+                                        {model.name}
+                                      </Text>
+                                      <Text style={styles.quantSizeBadge}>
+                                        ~{model.sizeGB.toFixed(2)} GB
+                                      </Text>
+                                      <View style={{ flex: 1 }} />
+                                      {isLoaded && (
+                                        <Ionicons
+                                          name="checkmark-circle"
+                                          size={18}
+                                          color={colors.accent}
+                                        />
+                                      )}
+                                    </TouchableOpacity>
+                                  </React.Fragment>
+                                );
+                              })}
                             </React.Fragment>
                           );
                         })}
+                        {/* Voice section */}
+                        {voiceItems.length > 0 && (
+                          <>
+                            <Text style={styles.downloadedSectionLabel}>
+                              Voice
+                            </Text>
+                            {voiceItems.map((v, idx) => {
+                              const isSelected = selectedForDeletion.has(v.id);
+                              return (
+                                <React.Fragment key={v.id}>
+                                  {idx > 0 && <View style={styles.quantDivider} />}
+                                  <TouchableOpacity
+                                    style={styles.downloadedItemRow}
+                                    onPress={() => toggleSelectForDeletion(v.id)}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Ionicons
+                                      name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                                      size={20}
+                                      color={isSelected ? colors.destructive : colors.textTertiary}
+                                    />
+                                    <Text style={styles.quantLabel}>{v.name}</Text>
+                                    <Text style={styles.quantSizeBadge}>{v.size}</Text>
+                                  </TouchableOpacity>
+                                </React.Fragment>
+                              );
+                            })}
+                          </>
+                        )}
+                        {/* Embedding section */}
+                        {hasEmbedding && (() => {
+                          const isSelected = selectedForDeletion.has("__embedding__");
+                          return (
+                            <>
+                              <Text style={styles.downloadedSectionLabel}>
+                                Embedding
+                              </Text>
+                              <TouchableOpacity
+                                style={styles.downloadedItemRow}
+                                onPress={() => toggleSelectForDeletion("__embedding__")}
+                                activeOpacity={0.7}
+                              >
+                                <Ionicons
+                                  name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                                  size={20}
+                                  color={isSelected ? colors.destructive : colors.textTertiary}
+                                />
+                                <Text style={styles.quantLabel}>
+                                  {EMBEDDING_MODEL.name}
+                                </Text>
+                                <Text style={styles.quantSizeBadge}>
+                                  ~{Math.round(EMBEDDING_MODEL.sizeGB * 1024)} MB
+                                </Text>
+                              </TouchableOpacity>
+                            </>
+                          );
+                        })()}
                         {selectedForDeletion.size > 0 && (
                           <>
                             <View style={styles.quantDivider} />
@@ -2078,6 +2189,16 @@ function createStyles(colors: ColorPalette) {
       color: colors.textTertiary,
       textAlign: "center",
       paddingVertical: SPACING.lg,
+    },
+    downloadedSectionLabel: {
+      fontSize: 11,
+      fontWeight: FONT.semibold,
+      color: colors.textTertiary,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      paddingHorizontal: SPACING.md,
+      paddingTop: SPACING.md,
+      paddingBottom: SPACING.xs,
     },
 
     segment: {
