@@ -23,6 +23,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ManagedAssetRow } from "../components/ManagedAssetRow";
 import {
   ALL_MODELS,
+  ChatBaseModel,
   CHAT_MODEL_FAMILIES,
   EMBEDDING_MODEL,
   TRANSLATION_MODELS,
@@ -36,6 +37,7 @@ import {
   getTranslationModelByPath,
   isLikelyCompleteModelFile,
   QUANTIZATION_DISPLAY_LABELS,
+  getModelBrandBadge,
 } from "../constants/models";
 import { useLlamaContext } from "../context/LlamaContext";
 import { useVoice } from "../hooks/useVoice";
@@ -55,6 +57,7 @@ import {
   subscribeToModelDownloadState,
   type ModelDownloadState,
 } from "../utils/modelDownloadManager";
+import { SvgXml } from "react-native-svg";
 import {
   getDeviceMemorySummary,
   getDeviceTotalMemoryBytes,
@@ -67,17 +70,61 @@ const DELETE_WIDTH = 56;
 const QUANT_SWIPE_WIDTH = 96; // two 36px buttons + gaps
 type VoiceModelKind = "stt" | "tts";
 
-const CATALOG_OPTIONS: Array<{
+function ModelBrandIcon({
+  baseModel,
+  size,
+}: {
+  baseModel: string;
+  size: number;
+}): React.JSX.Element {
+  const badge = getModelBrandBadge(baseModel);
+  if (badge.svg) {
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size * 0.25,
+          backgroundColor: badge.color + "18",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        <SvgXml xml={badge.svg} width={size * 0.65} height={size * 0.65} />
+      </View>
+    );
+  }
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size * 0.25,
+        backgroundColor: badge.color,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Text
+        style={{
+          fontSize: size * 0.45,
+          fontWeight: "700",
+          color: "#FFFFFF",
+        }}
+      >
+        {badge.letter}
+      </Text>
+    </View>
+  );
+}
+
+const ADDON_OPTIONS: Array<{
   id: ModelCatalogTab;
   title: string;
   subtitle: string;
-  badge?: string;
+  badge: string;
 }> = [
-  ...CHAT_MODEL_FAMILIES.map((family) => ({
-    id: family.baseModel,
-    title: family.title,
-    subtitle: family.subtitle,
-  })),
   {
     id: "voice",
     title: "Voice",
@@ -798,6 +845,14 @@ export function ModelCatalogScreen({
   const [selectedBase, setSelectedBase] = useState<ModelCatalogTab>(
     initialTab ?? "0.8B",
   );
+  const [expandedFamily, setExpandedFamily] = useState<ChatBaseModel | null>(
+    initialTab && !["voice", "translation", "embedding", "downloaded"].includes(initialTab)
+      ? (initialTab as ChatBaseModel)
+      : null,
+  );
+  const [selectedForDeletion, setSelectedForDeletion] = useState<Set<string>>(
+    new Set(),
+  );
   const [isScanning, setIsScanning] = useState(true);
   const [loadingModelId, setLoadingModelId] = useState<string | null>(null);
   const [voiceModelsState, setVoiceModelsState] = useState({
@@ -815,7 +870,8 @@ export function ModelCatalogScreen({
   const selectedChatModels =
     selectedBase === "embedding" ||
     selectedBase === "translation" ||
-    selectedBase === "voice"
+    selectedBase === "voice" ||
+    selectedBase === "downloaded"
       ? []
       : getChatModelsForBase(selectedBase);
   const loadedTranslationModel = getTranslationModelByPath(
@@ -1084,6 +1140,79 @@ export function ModelCatalogScreen({
     [loadedTranslationModelPath, onChatModelsChanged, unloadTranslationModel],
   );
 
+  const toggleSelectForDeletion = useCallback((modelId: string) => {
+    setSelectedForDeletion((prev) => {
+      const next = new Set(prev);
+      if (next.has(modelId)) next.delete(modelId);
+      else next.add(modelId);
+      return next;
+    });
+  }, []);
+
+  const deleteSelectedModels = useCallback(() => {
+    if (selectedForDeletion.size === 0) return;
+
+    const count = selectedForDeletion.size;
+    Alert.alert(
+      `Delete ${count} model${count > 1 ? "s" : ""}`,
+      "These models will be removed from your device. You can re-download them later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            for (const modelId of selectedForDeletion) {
+              const model =
+                ALL_MODELS.find((m) => m.id === modelId) ??
+                TRANSLATION_MODELS.find((m) => m.id === modelId);
+              if (!model) continue;
+              try {
+                if (loadedModelPath?.endsWith(model.filename)) {
+                  await unloadModel();
+                }
+                if (loadedTranslationModelPath?.endsWith(model.filename)) {
+                  await unloadTranslationModel();
+                }
+                await FileSystem.deleteAsync(modelFilePath(model.filename), {
+                  idempotent: true,
+                });
+                if (model.mmprojFilename) {
+                  await FileSystem.deleteAsync(
+                    modelFilePath(model.mmprojFilename),
+                    { idempotent: true },
+                  );
+                }
+              } catch {
+                // continue deleting others
+              }
+            }
+
+            setDownloadedModels((prev) => {
+              const next = new Set(prev);
+              for (const id of selectedForDeletion) next.delete(id);
+              return next;
+            });
+            setDownloadedTranslationModels((prev) => {
+              const next = new Set(prev);
+              for (const id of selectedForDeletion) next.delete(id);
+              return next;
+            });
+            setSelectedForDeletion(new Set());
+            onChatModelsChanged?.();
+          },
+        },
+      ],
+    );
+  }, [
+    selectedForDeletion,
+    loadedModelPath,
+    loadedTranslationModelPath,
+    unloadModel,
+    unloadTranslationModel,
+    onChatModelsChanged,
+  ]);
+
   const activateTranslationMode = useCallback(
     async (model: ModelConfig) => {
       if (!downloadedTranslationModels.has(model.id)) {
@@ -1342,334 +1471,434 @@ export function ModelCatalogScreen({
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         {/* Model family selector */}
-        <Text style={styles.sectionTitle}>Models</Text>
-        <View style={styles.segmentRow}>
-          {CATALOG_OPTIONS.map((option) => (
-            <TouchableOpacity
-              key={option.id}
-              style={[
-                styles.segment,
-                selectedBase === option.id && styles.segmentActive,
-              ]}
-              onPress={() => setSelectedBase(option.id)}
-            >
-              <View style={styles.segmentHeaderRow}>
+        {/* Model catalog cards */}
+        {[
+          ...CHAT_MODEL_FAMILIES.map((f) => ({
+            id: f.baseModel as ModelCatalogTab,
+            title: f.title,
+            subtitle: f.subtitle,
+            baseModel: f.baseModel as string,
+            kind: "chat" as const,
+          })),
+          ...ADDON_OPTIONS.map((o) => ({
+            id: o.id,
+            title: o.title,
+            subtitle: o.subtitle,
+            baseModel: o.id as string,
+            kind: "addon" as const,
+          })),
+          {
+            id: "downloaded" as ModelCatalogTab,
+            title: "Downloaded",
+            subtitle: "Manage on-device models",
+            baseModel: "downloaded",
+            kind: "addon" as const,
+          },
+        ].map((item) => {
+          const isChatFamily = item.kind === "chat";
+          const isExpanded = isChatFamily
+            ? expandedFamily === item.id
+            : selectedBase === item.id;
+
+          const iconElement = item.id === "downloaded" ? (
+            <View style={styles.catalogIconWrap}>
+              <Ionicons name="folder-outline" size={18} color={colors.textSecondary} />
+            </View>
+          ) : item.id === "voice" ? (
+            <View style={styles.catalogIconWrap}>
+              <Ionicons name="mic-outline" size={18} color={colors.textSecondary} />
+            </View>
+          ) : item.id === "translation" ? (
+            <View style={styles.catalogIconWrap}>
+              <Ionicons name="language-outline" size={18} color={colors.textSecondary} />
+            </View>
+          ) : item.id === "embedding" ? (
+            <View style={styles.catalogIconWrap}>
+              <Ionicons name="cube-outline" size={18} color={colors.textSecondary} />
+            </View>
+          ) : (
+            <ModelBrandIcon baseModel={item.baseModel} size={28} />
+          );
+
+          return (
+            <View key={item.id} style={styles.catalogCard}>
+              <TouchableOpacity
+                style={styles.catalogCardHeader}
+                onPress={() => {
+                  if (isChatFamily) {
+                    const base = item.id as ChatBaseModel;
+                    const next = expandedFamily === base ? null : base;
+                    setExpandedFamily(next);
+                    if (next) setSelectedBase(next);
+                    else setSelectedBase("0.8B");
+                  } else {
+                    const wasActive = selectedBase === item.id;
+                    setSelectedBase(wasActive ? "0.8B" : item.id);
+                    setExpandedFamily(null);
+                    if (item.id !== "downloaded")
+                      setSelectedForDeletion(new Set());
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                {iconElement}
                 <Text
                   style={[
-                    styles.segmentText,
-                    selectedBase === option.id && styles.segmentTextActive,
+                    styles.catalogRowTitle,
+                    isExpanded && styles.catalogRowTitleActive,
                   ]}
-                >
-                  {option.title}
-                </Text>
-                {option.badge ? (
-                  <View
-                    style={[
-                      styles.segmentBadge,
-                      selectedBase === option.id && styles.segmentBadgeActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.segmentBadgeText,
-                        selectedBase === option.id &&
-                          styles.segmentBadgeTextActive,
-                      ]}
-                    >
-                      {option.badge}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text
-                style={[
-                  styles.segmentSub,
-                  selectedBase === option.id && styles.segmentSubActive,
-                ]}
-              >
-                {option.subtitle}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {selectedBase === "voice" ? (
-          <>
-            <Text style={styles.sectionTitle}>Voice models</Text>
-            <Text style={styles.sectionHint}>
-              On-device speech-to-text and text-to-speech models.
-            </Text>
-
-            {(() => {
-              // STT ~75MB, Piper ~65MB of total ~140MB.
-              const STT_WEIGHT = 75 / 140;
-              const TTS_WEIGHT = 65 / 140;
-              const bothDownloaded =
-                voiceModelsState.sttDownloaded &&
-                voiceModelsState.piperDownloaded;
-              const bothLoaded =
-                voiceModelsState.sttLoaded && voiceModelsState.piperLoaded;
-              let combinedProgress: number | null = null;
-              if (
-                voiceProgress &&
-                voiceProgress.stage === "downloading" &&
-                voiceProgress.ttsBackend !== "kokoro"
-              ) {
-                if (voiceProgress.model === "stt") {
-                  combinedProgress = (voiceProgress.progress ?? 0) * STT_WEIGHT;
-                } else {
-                  combinedProgress =
-                    STT_WEIGHT + (voiceProgress.progress ?? 0) * TTS_WEIGHT;
-                }
-              }
-              const isDownloading = combinedProgress !== null;
-              const isVoiceLoading =
-                voiceProgress?.stage === "loading" &&
-                voiceProgress.ttsBackend !== "kokoro";
-              const kokoroProgress =
-                voiceProgress?.ttsBackend === "kokoro" &&
-                (voiceProgress.stage === "downloading" ||
-                  voiceProgress.stage === "loading")
-                  ? voiceProgress.progress
-                  : null;
-              return (
-                <>
-                  <VoiceCombinedRow
-                    isDownloaded={bothDownloaded}
-                    downloadProgress={combinedProgress}
-                    isDownloading={isDownloading}
-                    isLoading={isVoiceLoading}
-                    isLoaded={bothLoaded}
-                    onDownload={downloadAllVoiceModels}
-                    onDelete={handleDeleteVoiceModels}
-                    onReload={downloadAllVoiceModels}
-                  />
-
-                  <View style={styles.sectionSubgroup}>
-                    <Text style={styles.sectionTitle}>
-                      More natural sound (optional)
-                    </Text>
-                    <Text style={styles.sectionHint}>
-                      {isKokoroAvailable
-                        ? "Use Kokoro on-device for more natural assistant voice."
-                        : "Kokoro requires a rebuilt native app. Whisper + Piper remain the default on-device voice stack."}
-                    </Text>
-
-                    <ManagedAssetRow
-                      style={styles.quantSwipeContainer}
-                      title="Kokoro"
-                      subtitle={
-                        !isKokoroAvailable
-                          ? "Requires a rebuilt native app"
-                          : voiceModelsState.activeTTSBackend === "kokoro"
-                            ? "Currently preferred for playback"
-                            : "More natural playback voice model"
-                      }
-                      sizeLabel="~87 MB"
-                      isDownloaded={voiceModelsState.kokoroDownloaded}
-                      downloadProgress={kokoroProgress}
-                      disabled={
-                        !isKokoroAvailable ||
-                        (isVoiceDownloading &&
-                          voiceProgress?.ttsBackend !== "kokoro")
-                      }
-                      onDownload={downloadKokoroVoiceModel}
-                      onDelete={handleDeleteKokoroVoiceModel}
-                    />
-                  </View>
-                </>
-              );
-            })()}
-
-            <View style={styles.voiceActions}>
-              {voiceError ? (
-                <Text style={styles.voiceErrorText}>
-                  Voice error: {voiceError}
-                </Text>
-              ) : null}
-              {!voiceAvailable ? (
-                <Text style={styles.voiceUnavailableText}>
-                  Voice runtime is unavailable in this environment.
-                </Text>
-              ) : !isKokoroAvailable ? (
-                <Text style={styles.voiceUnavailableText}>
-                  Kokoro playback needs a rebuilt native app with the bundled
-                  Phonemis bridge before this optional voice pack can be used.
-                </Text>
-              ) : null}
-            </View>
-          </>
-        ) : selectedBase === "translation" ? (
-          <>
-            <Text style={styles.sectionTitle}>Translation models</Text>
-            <Text style={styles.sectionHint}>
-              Dedicated on-device text translation.
-            </Text>
-
-            {TRANSLATION_MODELS.map((model) => {
-              const translationBlockedReason = getModelMemoryBlockReason(
-                model,
-                deviceTotalMemoryBytes,
-              );
-              const isDownloaded = downloadedTranslationModels.has(model.id);
-              const translationLoadDisabled =
-                isDownloaded && !!translationBlockedReason;
-
-              return (
-                <ManagedAssetRow
-                  key={model.id}
-                  style={styles.quantSwipeContainer}
-                  title={model.name}
-                  subtitle={model.description}
-                  sizeLabel={formatManagedAssetSizeLabel(model.sizeGB)}
-                  badge={
-                    model.recommended
-                      ? "Recommended"
-                      : model.fast
-                        ? "Fast"
-                        : undefined
-                  }
-                  isDownloaded={isDownloaded}
-                  isLoaded={loadedTranslationModel?.id === model.id}
-                  isLoading={
-                    loadingModelId === model.id ||
-                    (isTranslationLoading &&
-                      loadedTranslationModel?.id === model.id)
-                  }
-                  downloadProgress={
-                    downloadProgress?.modelId === model.id
-                      ? downloadProgress.progress
-                      : null
-                  }
-                  disabled={
-                    !isDownloaded &&
-                    downloadState.status === "downloading" &&
-                    downloadProgress?.modelId !== model.id
-                  }
-                  loadDisabled={translationLoadDisabled}
-                  onDownload={() => downloadTranslationModel(model)}
-                  onLoad={() => activateTranslationMode(model)}
-                  onDelete={() => deleteTranslationModel(model)}
-                />
-              );
-            })}
-
-            {loadedTranslationModel ? (
-              <Text style={styles.sectionHint}>
-                Translation mode is ready to open with{" "}
-                {loadedTranslationModel.name}.
-              </Text>
-            ) : null}
-
-            {isScanning ? (
-              <View style={styles.scanningRow}>
-                <ActivityIndicator size="small" color={colors.textSecondary} />
-                <Text style={styles.scanningText}>
-                  {" "}
-                  Scanning for downloaded models…
-                </Text>
-              </View>
-            ) : null}
-          </>
-        ) : selectedBase === "embedding" ? (
-          <>
-            <Text style={styles.sectionTitle}>Embedding model</Text>
-            <Text style={styles.sectionHint}>
-              On-device embedding model used for File Vault indexing and
-              retrieval.
-            </Text>
-
-            <ManagedAssetRow
-              style={styles.quantSwipeContainer}
-              title={EMBEDDING_MODEL.name}
-              subtitle="Required for File Vault semantic retrieval"
-              sizeLabel={`~${Math.round(EMBEDDING_MODEL.sizeGB * 1024)} MB`}
-              isDownloaded={embeddingDownloaded}
-              downloadProgress={embeddingProgress}
-              disabled={embeddingAssetDisabled}
-              onDownload={handleDownloadEmbeddingModel}
-              onDelete={handleDeleteEmbeddingModel}
-            />
-
-            {isScanning ? (
-              <View style={styles.scanningRow}>
-                <ActivityIndicator size="small" color={colors.textSecondary} />
-                <Text style={styles.scanningText}>
-                  {" "}
-                  Scanning for downloaded models…
-                </Text>
-              </View>
-            ) : null}
-          </>
-        ) : (
-          <>
-            {/* Quantization selector */}
-            <Text style={styles.sectionTitle}>Quantization</Text>
-            <Text style={styles.sectionHint}>
-              Higher = better quality, larger file size and slower.
-            </Text>
-            {selectedChatModels.map((model) => {
-              const isDownloaded = downloadedModels.has(model.id);
-              const isLoaded = !!loadedModelPath?.endsWith(model.filename);
-              const isLoadingThis = loadingModelId === model.id;
-              const modelBlockedReason = getModelMemoryBlockReason(
-                model,
-                deviceTotalMemoryBytes,
-              );
-              const isModelAllowed = isModelAllowedByDeviceMemory(
-                model,
-                deviceTotalMemoryBytes,
-              );
-              const progress =
-                downloadProgress?.modelId === model.id
-                  ? downloadProgress.progress
-                  : null;
-              return (
-                <QuantRow
-                  key={model.id}
-                  model={model}
-                  quantization={model.quantization}
-                  isDownloaded={isDownloaded}
-                  isLoaded={isLoaded}
-                  isLoadingThis={isLoadingThis}
-                  loadDisabled={!isModelAllowed}
-                  downloadDisabled={!isModelAllowed}
-                  disabledReason={modelBlockedReason}
-                  downloadProgress={progress}
-                  onDownload={(m) => downloadModel(m)}
-                  onLoad={() => {
-                    if (model) loadModelById(model);
-                  }}
-                  onDelete={() => {
-                    if (model) deleteModel(model);
-                  }}
-                />
-              );
-            })}
-
-            {deviceMemorySummary ? (
-              <View style={styles.quantHelperRow}>
-                <Text
-                  style={styles.quantHelperBadge}
                   numberOfLines={1}
-                  ellipsizeMode="tail"
                 >
+                  {item.title}
+                </Text>
+                <Text style={styles.catalogRowSub} numberOfLines={1}>
+                  {item.subtitle}
+                </Text>
+                <Ionicons
+                  name={isExpanded ? "chevron-up" : "chevron-forward"}
+                  size={16}
+                  color={isExpanded ? colors.accent : colors.textTertiary}
+                />
+              </TouchableOpacity>
+
+              {/* Inline expanded content for chat families */}
+              {isChatFamily && isExpanded && (() => {
+                const family = CHAT_MODEL_FAMILIES.find(
+                  (f) => f.baseModel === item.id,
+                );
+                if (!family) return null;
+                return (
+                  <View style={styles.catalogCardBody}>
+                    {family.models.map((model, idx) => {
+                      const isDownloaded = downloadedModels.has(model.id);
+                      const isLoaded = !!loadedModelPath?.endsWith(
+                        model.filename,
+                      );
+                      const isLoadingThis = loadingModelId === model.id;
+                      const modelBlockedReason = getModelMemoryBlockReason(
+                        model,
+                        deviceTotalMemoryBytes,
+                      );
+                      const isModelAllowed = isModelAllowedByDeviceMemory(
+                        model,
+                        deviceTotalMemoryBytes,
+                      );
+                      const progress =
+                        downloadProgress?.modelId === model.id
+                          ? downloadProgress.progress
+                          : null;
+                      return (
+                        <React.Fragment key={model.id}>
+                          {idx > 0 && (
+                            <View style={styles.quantDivider} />
+                          )}
+                          <QuantRow
+                            model={model}
+                            quantization={model.quantization}
+                            isDownloaded={isDownloaded}
+                            isLoaded={isLoaded}
+                            isLoadingThis={isLoadingThis}
+                            loadDisabled={!isModelAllowed}
+                            downloadDisabled={!isModelAllowed}
+                            disabledReason={modelBlockedReason}
+                            downloadProgress={progress}
+                            onDownload={(m) => downloadModel(m)}
+                            onLoad={() => {
+                              if (model) loadModelById(model);
+                            }}
+                            onDelete={() => {
+                              if (model) deleteModel(model);
+                            }}
+                          />
+                        </React.Fragment>
+                      );
+                    })}
+                  </View>
+                );
+              })()}
+              {isChatFamily && isExpanded && deviceMemorySummary ? (
+                <Text style={styles.deviceMemoryHint}>
                   {deviceMemorySummary}
                 </Text>
-              </View>
-            ) : null}
+              ) : null}
 
-            {isScanning && (
-              <View style={styles.scanningRow}>
-                <ActivityIndicator size="small" color={colors.textSecondary} />
-                <Text style={styles.scanningText}>
-                  {" "}
-                  Scanning for downloaded models…
-                </Text>
-              </View>
-            )}
-          </>
-        )}
+              {/* Inline expanded content for voice */}
+              {item.id === "voice" && isExpanded && (
+                <View style={styles.catalogCardBody}>
+                  {(() => {
+                    const STT_WEIGHT = 75 / 140;
+                    const TTS_WEIGHT = 65 / 140;
+                    const bothDownloaded =
+                      voiceModelsState.sttDownloaded &&
+                      voiceModelsState.piperDownloaded;
+                    const bothLoaded =
+                      voiceModelsState.sttLoaded && voiceModelsState.piperLoaded;
+                    let combinedProgress: number | null = null;
+                    if (
+                      voiceProgress &&
+                      voiceProgress.stage === "downloading" &&
+                      voiceProgress.ttsBackend !== "kokoro"
+                    ) {
+                      if (voiceProgress.model === "stt") {
+                        combinedProgress =
+                          (voiceProgress.progress ?? 0) * STT_WEIGHT;
+                      } else {
+                        combinedProgress =
+                          STT_WEIGHT +
+                          (voiceProgress.progress ?? 0) * TTS_WEIGHT;
+                      }
+                    }
+                    const isDownloading = combinedProgress !== null;
+                    const isVoiceLoading =
+                      voiceProgress?.stage === "loading" &&
+                      voiceProgress.ttsBackend !== "kokoro";
+                    const kokoroProgress =
+                      voiceProgress?.ttsBackend === "kokoro" &&
+                      (voiceProgress.stage === "downloading" ||
+                        voiceProgress.stage === "loading")
+                        ? voiceProgress.progress
+                        : null;
+                    return (
+                      <>
+                        <VoiceCombinedRow
+                          isDownloaded={bothDownloaded}
+                          downloadProgress={combinedProgress}
+                          isDownloading={isDownloading}
+                          isLoading={isVoiceLoading}
+                          isLoaded={bothLoaded}
+                          onDownload={downloadAllVoiceModels}
+                          onDelete={handleDeleteVoiceModels}
+                          onReload={downloadAllVoiceModels}
+                        />
+                        <View style={styles.quantDivider} />
+                        <ManagedAssetRow
+                          style={styles.quantSwipeContainer}
+                          title="Kokoro"
+                          subtitle={
+                            !isKokoroAvailable
+                              ? "Requires a rebuilt native app"
+                              : voiceModelsState.activeTTSBackend === "kokoro"
+                                ? "Currently preferred for playback"
+                                : "More natural playback voice model"
+                          }
+                          sizeLabel="~87 MB"
+                          isDownloaded={voiceModelsState.kokoroDownloaded}
+                          downloadProgress={kokoroProgress}
+                          disabled={
+                            !isKokoroAvailable ||
+                            (isVoiceDownloading &&
+                              voiceProgress?.ttsBackend !== "kokoro")
+                          }
+                          onDownload={downloadKokoroVoiceModel}
+                          onDelete={handleDeleteKokoroVoiceModel}
+                        />
+                      </>
+                    );
+                  })()}
+                  {voiceError ? (
+                    <Text style={styles.catalogCardHint}>
+                      Voice error: {voiceError}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+
+              {/* Inline expanded content for translation */}
+              {item.id === "translation" && isExpanded && (
+                <View style={styles.catalogCardBody}>
+                  {TRANSLATION_MODELS.map((model, idx) => {
+                    const translationBlockedReason = getModelMemoryBlockReason(
+                      model,
+                      deviceTotalMemoryBytes,
+                    );
+                    const isDownloaded = downloadedTranslationModels.has(
+                      model.id,
+                    );
+                    const translationLoadDisabled =
+                      isDownloaded && !!translationBlockedReason;
+                    return (
+                      <React.Fragment key={model.id}>
+                        {idx > 0 && <View style={styles.quantDivider} />}
+                        <ManagedAssetRow
+                          style={styles.quantSwipeContainer}
+                          title={model.name}
+                          subtitle={model.description}
+                          sizeLabel={formatManagedAssetSizeLabel(model.sizeGB)}
+                          badge={
+                            model.recommended
+                              ? "Recommended"
+                              : model.fast
+                                ? "Fast"
+                                : undefined
+                          }
+                          isDownloaded={isDownloaded}
+                          isLoaded={loadedTranslationModel?.id === model.id}
+                          isLoading={
+                            loadingModelId === model.id ||
+                            (isTranslationLoading &&
+                              loadedTranslationModel?.id === model.id)
+                          }
+                          downloadProgress={
+                            downloadProgress?.modelId === model.id
+                              ? downloadProgress.progress
+                              : null
+                          }
+                          disabled={
+                            !isDownloaded &&
+                            downloadState.status === "downloading" &&
+                            downloadProgress?.modelId !== model.id
+                          }
+                          loadDisabled={translationLoadDisabled}
+                          onDownload={() => downloadTranslationModel(model)}
+                          onLoad={() => activateTranslationMode(model)}
+                          onDelete={() => deleteTranslationModel(model)}
+                        />
+                      </React.Fragment>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* Inline expanded content for embedding */}
+              {item.id === "embedding" && isExpanded && (
+                <View style={styles.catalogCardBody}>
+                  <ManagedAssetRow
+                    style={styles.quantSwipeContainer}
+                    title={EMBEDDING_MODEL.name}
+                    subtitle="Required for File Vault semantic retrieval"
+                    sizeLabel={`~${Math.round(EMBEDDING_MODEL.sizeGB * 1024)} MB`}
+                    isDownloaded={embeddingDownloaded}
+                    downloadProgress={embeddingProgress}
+                    disabled={embeddingAssetDisabled}
+                    onDownload={handleDownloadEmbeddingModel}
+                    onDelete={handleDeleteEmbeddingModel}
+                  />
+                </View>
+              )}
+
+              {/* Inline expanded content for downloaded */}
+              {item.id === "downloaded" && isExpanded && (() => {
+                const downloadedChatModels = ALL_MODELS.filter((m) =>
+                  downloadedModels.has(m.id),
+                );
+                const downloadedTranslation = TRANSLATION_MODELS.filter((m) =>
+                  downloadedTranslationModels.has(m.id),
+                );
+                const allDownloaded = [
+                  ...downloadedChatModels,
+                  ...downloadedTranslation,
+                ];
+                const allSelected =
+                  allDownloaded.length > 0 &&
+                  allDownloaded.every((m) => selectedForDeletion.has(m.id));
+                return (
+                  <View style={styles.catalogCardBody}>
+                    {allDownloaded.length === 0 ? (
+                      <Text style={styles.downloadedEmptyHint}>
+                        No models downloaded yet.
+                      </Text>
+                    ) : (
+                      <>
+                        {/* Select all / Delete bar */}
+                        <View style={styles.downloadedTopBar}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (allSelected) {
+                                setSelectedForDeletion(new Set());
+                              } else {
+                                setSelectedForDeletion(
+                                  new Set(allDownloaded.map((m) => m.id)),
+                                );
+                              }
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.selectAllText}>
+                              {allSelected ? "Deselect all" : "Select all"}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                        <View style={styles.quantDivider} />
+                        {/* Model rows */}
+                        {allDownloaded.map((model, idx) => {
+                          const isSelected = selectedForDeletion.has(model.id);
+                          const isLoaded =
+                            loadedModelPath?.endsWith(model.filename) ||
+                            loadedTranslationModelPath?.endsWith(
+                              model.filename,
+                            );
+                          return (
+                            <React.Fragment key={model.id}>
+                              {idx > 0 && <View style={styles.quantDivider} />}
+                              <TouchableOpacity
+                                style={styles.downloadedItemRow}
+                                onPress={() =>
+                                  toggleSelectForDeletion(model.id)
+                                }
+                                activeOpacity={0.7}
+                              >
+                                <Ionicons
+                                  name={
+                                    isSelected
+                                      ? "checkmark-circle"
+                                      : "ellipse-outline"
+                                  }
+                                  size={20}
+                                  color={
+                                    isSelected
+                                      ? colors.destructive
+                                      : colors.textTertiary
+                                  }
+                                />
+                                <Text
+                                  style={styles.quantLabel}
+                                  numberOfLines={1}
+                                >
+                                  {model.name}
+                                </Text>
+                                <Text style={styles.quantSizeBadge}>
+                                  ~{model.sizeGB.toFixed(2)} GB
+                                </Text>
+                                <View style={{ flex: 1 }} />
+                                {isLoaded && (
+                                  <Ionicons
+                                    name="checkmark-circle"
+                                    size={18}
+                                    color={colors.accent}
+                                  />
+                                )}
+                              </TouchableOpacity>
+                            </React.Fragment>
+                          );
+                        })}
+                        {selectedForDeletion.size > 0 && (
+                          <>
+                            <View style={styles.quantDivider} />
+                            <TouchableOpacity
+                              style={styles.deleteSelectedButtonWide}
+                              onPress={deleteSelectedModels}
+                              activeOpacity={0.8}
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={16}
+                                color={colors.destructive}
+                              />
+                              <Text style={styles.deleteSelectedTextWide}>
+                                Delete Selected ({selectedForDeletion.size})
+                              </Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </View>
+                );
+              })()}
+            </View>
+          );
+        })}
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -1773,6 +2002,84 @@ function createStyles(colors: ColorPalette) {
       marginHorizontal: SPACING.lg,
       gap: SPACING.sm,
     },
+    // Catalog cards
+    catalogCard: {
+      marginHorizontal: SPACING.lg,
+      marginBottom: SPACING.sm,
+      backgroundColor: colors.surface,
+      borderRadius: RADII.md,
+      overflow: "hidden",
+    },
+    catalogCardHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.md,
+      padding: SPACING.md,
+    },
+    catalogIconWrap: {
+      width: 28,
+      height: 28,
+      borderRadius: 7,
+      backgroundColor: colors.base,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    catalogRowTitle: {
+      fontSize: 15,
+      fontWeight: FONT.medium,
+      color: colors.textPrimary,
+    },
+    catalogRowTitleActive: {
+      color: colors.accent,
+    },
+    catalogRowSub: {
+      flex: 1,
+      fontSize: 13,
+      color: colors.textTertiary,
+      textAlign: "right",
+    },
+    catalogCardBody: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    quantDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+      marginHorizontal: SPACING.md,
+    },
+    catalogCardHint: {
+      fontSize: 12,
+      color: colors.textTertiary,
+      paddingHorizontal: SPACING.lg,
+      paddingVertical: SPACING.sm,
+    },
+    deviceMemoryHint: {
+      fontSize: 12,
+      color: colors.textTertiary,
+      textAlign: "center",
+      paddingVertical: SPACING.sm,
+    },
+    downloadedItemRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: SPACING.md,
+      paddingVertical: SPACING.sm + 2,
+    },
+    downloadedTopBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: SPACING.md,
+      paddingVertical: SPACING.sm,
+    },
+    downloadedEmptyHint: {
+      fontSize: 13,
+      color: colors.textTertiary,
+      textAlign: "center",
+      paddingVertical: SPACING.lg,
+    },
+
     segment: {
       flexBasis: "48%",
       backgroundColor: colors.surface,
@@ -1823,6 +2130,9 @@ function createStyles(colors: ColorPalette) {
     segmentSubActive: { color: colors.textSecondary },
 
     quantSwipeContainer: {
+      borderRadius: 0,
+    },
+    quantSwipeContainerOuter: {
       marginHorizontal: SPACING.lg,
       marginBottom: SPACING.sm,
       borderRadius: RADII.sm,
@@ -1868,14 +2178,13 @@ function createStyles(colors: ColorPalette) {
     },
     quantSwipeRow: {
       backgroundColor: colors.surface,
-      borderRadius: RADII.sm,
     },
     quantRow: {
       flexDirection: "row",
       alignItems: "center",
       backgroundColor: colors.surface,
-      borderRadius: RADII.sm,
-      padding: SPACING.md,
+      paddingHorizontal: SPACING.md,
+      paddingVertical: SPACING.sm + 2,
       overflow: "hidden",
     },
     quantLeft: { flex: 1 },
@@ -2097,6 +2406,69 @@ function createStyles(colors: ColorPalette) {
       color: colors.textTertiary,
       textAlign: "center",
       lineHeight: 18,
+    },
+
+    // Downloaded tab
+    downloadedHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginHorizontal: SPACING.lg,
+      marginTop: SPACING.xl,
+      marginBottom: SPACING.sm,
+    },
+    selectAllText: {
+      fontSize: 14,
+      fontWeight: FONT.medium,
+      color: colors.accent,
+    },
+    manageRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.md,
+      paddingHorizontal: SPACING.md,
+      paddingVertical: SPACING.sm + 2,
+    },
+    manageRowInfo: {
+      flex: 1,
+      gap: 2,
+    },
+    manageRowName: {
+      fontSize: 16,
+      fontWeight: FONT.medium,
+      color: colors.textPrimary,
+    },
+    manageRowMeta: {
+      fontSize: 13,
+      color: colors.textTertiary,
+    },
+    manageEmpty: {
+      alignItems: "center",
+      paddingVertical: SPACING.xxl,
+      gap: SPACING.sm,
+    },
+    manageEmptyTitle: {
+      fontSize: 16,
+      fontWeight: FONT.semibold,
+      color: colors.textPrimary,
+    },
+    manageEmptyText: {
+      fontSize: 14,
+      color: colors.textTertiary,
+      textAlign: "center",
+      paddingHorizontal: SPACING.xxl,
+    },
+    deleteSelectedButtonWide: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: SPACING.sm,
+      paddingVertical: SPACING.md,
+    },
+    deleteSelectedTextWide: {
+      fontSize: 14,
+      fontWeight: FONT.semibold,
+      color: colors.destructive,
     },
   });
 }

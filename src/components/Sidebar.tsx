@@ -1,9 +1,15 @@
-import React, { memo, useMemo, useRef } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Image,
+  Linking,
+  Modal,
   PanResponder,
+  Platform,
+  Pressable,
   SectionList,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,11 +18,21 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
+import * as FileSystem from "expo-file-system/legacy";
 import { ColorPalette, FONT, RADII, SPACING } from "../constants/theme";
 import { ThemePreference, useTheme } from "../context/ThemeContext";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 
 const DEFAULT_SIDEBAR_WIDTH = 320;
+const MODELS_DIR = (FileSystem.documentDirectory ?? "") + "models/";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 export interface ChatSummary {
   id: string;
@@ -41,6 +57,8 @@ interface SidebarProps {
   onOpenFileVault: () => void;
   onOpenTranslation: () => void;
   onOpenModelCatalog: () => void;
+  onManageModels: () => void;
+  onDeleteAllChats: () => void;
   activeMode: "chat" | "translation";
   onClose: () => void;
 }
@@ -338,12 +356,48 @@ function SidebarComponent({
   onOpenFileVault,
   onOpenTranslation,
   onOpenModelCatalog,
+  onManageModels,
+  onDeleteAllChats,
   activeMode,
   onClose,
 }: SidebarProps): React.JSX.Element | null {
   const { colors, scheme, preference, setPreference } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const glassScheme = scheme === "dark" ? "dark" : "light";
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [storageBytes, setStorageBytes] = useState<number | null>(null);
+  const [modelCount, setModelCount] = useState(0);
+
+  const scanStorage = useCallback(async () => {
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(MODELS_DIR);
+      if (!dirInfo.exists) {
+        setStorageBytes(0);
+        setModelCount(0);
+        return;
+      }
+      const files = await FileSystem.readDirectoryAsync(MODELS_DIR);
+      let total = 0;
+      let count = 0;
+      for (const name of files) {
+        if (!name.endsWith(".gguf")) continue;
+        const info = await FileSystem.getInfoAsync(MODELS_DIR + name);
+        if (info.exists) {
+          total += (info as { size?: number }).size ?? 0;
+          count += 1;
+        }
+      }
+      setStorageBytes(total);
+      setModelCount(count);
+    } catch {
+      setStorageBytes(null);
+      setModelCount(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (settingsOpen) void scanStorage();
+  }, [settingsOpen, scanStorage]);
 
   const cycleTheme = () => {
     const order: ThemePreference[] = ["light", "dark", "system"];
@@ -547,8 +601,40 @@ function SidebarComponent({
         )}
       </View>
 
-      {/* Bottom theme toggle */}
+      {/* Bottom bar: settings + theme toggle */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 8 }]}>
+        {isLiquidGlassAvailable() ? (
+          <GlassView
+            isInteractive
+            colorScheme={glassScheme}
+            style={styles.themeGlass}
+          >
+            <TouchableOpacity
+              style={styles.themeGlassInner}
+              onPress={() => setSettingsOpen(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="settings-outline"
+                size={18}
+                color={colors.textSecondary}
+              />
+            </TouchableOpacity>
+          </GlassView>
+        ) : (
+          <TouchableOpacity
+            style={styles.themeSolid}
+            onPress={() => setSettingsOpen(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="settings-outline"
+              size={18}
+              color={colors.textSecondary}
+            />
+          </TouchableOpacity>
+        )}
+
         {isLiquidGlassAvailable() ? (
           <GlassView
             isInteractive
@@ -577,6 +663,202 @@ function SidebarComponent({
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Settings bottom sheet */}
+      <Modal
+        visible={settingsOpen}
+        animationType="slide"
+        transparent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setSettingsOpen(false)}
+      >
+        <Pressable
+          style={styles.settingsOverlay}
+          onPress={() => setSettingsOpen(false)}
+        >
+          <Pressable
+            style={[styles.settingsSheet, { paddingBottom: insets.bottom + SPACING.xl }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <View style={styles.settingsHeader}>
+              <View style={styles.settingsHandle} />
+              <View style={styles.settingsHeaderRow}>
+                <Text style={styles.settingsTitle}>Settings</Text>
+                {isLiquidGlassAvailable() ? (
+                  <GlassView
+                    isInteractive
+                    colorScheme={glassScheme}
+                    style={styles.settingsCloseGlass}
+                  >
+                    <TouchableOpacity
+                      style={styles.settingsCloseInner}
+                      onPress={() => setSettingsOpen(false)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close" size={18} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  </GlassView>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.settingsCloseSolid}
+                    onPress={() => setSettingsOpen(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={18} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            {/* Storage */}
+            <Text style={styles.settingsSectionLabel}>Storage</Text>
+            <View style={styles.settingsGroup}>
+              <View style={styles.storageRow}>
+                <View style={styles.storageIconWrap}>
+                  <Ionicons name="server-outline" size={20} color={colors.accent} />
+                </View>
+                <View style={styles.storageInfo}>
+                  <Text style={styles.storageValue}>
+                    {storageBytes !== null ? formatBytes(storageBytes) : "..."}
+                  </Text>
+                  <Text style={styles.storageLabel}>
+                    {modelCount === 1
+                      ? "1 model on device"
+                      : `${modelCount} models on device`}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.settingsRowDivider} />
+
+              <TouchableOpacity
+                style={styles.settingsRow}
+                onPress={() => {
+                  setSettingsOpen(false);
+                  onManageModels();
+                  onClose();
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="cube-outline" size={20} color={colors.textSecondary} />
+                <Text style={styles.settingsRowText}>Manage Models</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+              </TouchableOpacity>
+
+              <View style={styles.settingsRowDivider} />
+
+              <TouchableOpacity
+                style={styles.settingsRow}
+                onPress={() => {
+                  Alert.alert(
+                    "Delete all chats",
+                    "This will permanently delete all your chat and translation history. This cannot be undone.",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Delete All",
+                        style: "destructive",
+                        onPress: () => {
+                          onDeleteAllChats();
+                          setSettingsOpen(false);
+                        },
+                      },
+                    ],
+                  );
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="trash-outline" size={20} color={colors.destructive} />
+                <Text style={[styles.settingsRowText, { color: colors.destructive }]}>
+                  Delete All Chats
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Spread the Word */}
+            <Text style={styles.settingsSectionLabel}>Spread the Word</Text>
+            <View style={styles.settingsGroup}>
+              <TouchableOpacity
+                style={styles.settingsRow}
+                onPress={() => {
+                  const appStoreUrl =
+                    Platform.OS === "android"
+                      ? "https://play.google.com/store/apps/details?id=io.tensorpath.chat"
+                      : "https://apps.apple.com/us/app/tensorchat-private-ai/id6760141754";
+                  void Share.share(
+                    Platform.OS === "ios"
+                      ? {
+                          message: "Check out TensorChat — a privacy-first, on-device AI chat app!",
+                          url: appStoreUrl,
+                        }
+                      : {
+                          message: `Check out TensorChat — a privacy-first, on-device AI chat app! ${appStoreUrl}`,
+                        },
+                  );
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="share-outline" size={20} color={colors.textSecondary} />
+                <Text style={styles.settingsRowText}>Share TensorChat</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+              </TouchableOpacity>
+
+              <View style={styles.settingsRowDivider} />
+
+              <TouchableOpacity
+                style={styles.settingsRow}
+                onPress={() =>
+                  void Linking.openURL("https://github.com/general-intelligence-inc/tensorchat")
+                }
+                activeOpacity={0.7}
+              >
+                <Ionicons name="logo-github" size={20} color={colors.textSecondary} />
+                <Text style={styles.settingsRowText}>Star us on GitHub</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Legal */}
+            <Text style={styles.settingsSectionLabel}>Legal</Text>
+            <View style={styles.settingsGroup}>
+              <TouchableOpacity
+                style={styles.settingsRow}
+                onPress={() => void Linking.openURL("https://tensorchat.app/terms")}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="document-text-outline" size={20} color={colors.textSecondary} />
+                <Text style={styles.settingsRowText}>Terms & Conditions</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+              </TouchableOpacity>
+
+              <View style={styles.settingsRowDivider} />
+
+              <TouchableOpacity
+                style={styles.settingsRow}
+                onPress={() =>
+                  void Linking.openURL("https://tensorchat.app/privacy")
+                }
+                activeOpacity={0.7}
+              >
+                <Ionicons name="shield-checkmark-outline" size={20} color={colors.textSecondary} />
+                <Text style={styles.settingsRowText}>Privacy Policy</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* About */}
+            <Text style={styles.settingsSectionLabel}>About</Text>
+            <View style={styles.settingsGroup}>
+              <View style={styles.settingsRow}>
+                <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
+                <Text style={styles.settingsRowText}>Version</Text>
+                <Text style={styles.settingsVersionText}>1.4.8</Text>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -700,11 +982,11 @@ function createStyles(colors: ColorPalette) {
       color: colors.accent,
     },
 
-    // Theme toggle
+    // Bottom bar
     bottomBar: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "flex-end",
+      justifyContent: "space-between",
       paddingLeft: SPACING.lg,
       paddingRight: SPACING.md,
       paddingTop: SPACING.sm,
@@ -814,6 +1096,125 @@ function createStyles(colors: ColorPalette) {
       fontSize: 14,
       fontWeight: FONT.medium,
       color: "#FFFFFF",
+    },
+
+    // Settings bottom sheet
+    settingsOverlay: {
+      flex: 1,
+      backgroundColor: colors.overlayBg,
+      justifyContent: "flex-end",
+    },
+    settingsSheet: {
+      backgroundColor: colors.base,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: SPACING.lg,
+    },
+    settingsHeader: {
+      paddingTop: SPACING.sm,
+      paddingBottom: SPACING.xs,
+    },
+    settingsHandle: {
+      width: 36,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: colors.border,
+      alignSelf: "center",
+      marginBottom: SPACING.md,
+    },
+    settingsHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    settingsTitle: {
+      fontSize: 20,
+      fontWeight: FONT.bold,
+      color: colors.textPrimary,
+    },
+    settingsCloseGlass: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      overflow: "hidden",
+    },
+    settingsCloseInner: {
+      width: 30,
+      height: 30,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    settingsCloseSolid: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+    },
+    storageRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.md,
+      paddingVertical: SPACING.md,
+      paddingHorizontal: SPACING.md,
+    },
+    storageIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: RADII.sm,
+      backgroundColor: colors.accentTint,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    storageInfo: {
+      flex: 1,
+      gap: 2,
+    },
+    storageValue: {
+      fontSize: 14,
+      fontWeight: FONT.medium,
+      color: colors.textSecondary,
+    },
+    storageLabel: {
+      fontSize: 13,
+      color: colors.textTertiary,
+    },
+    settingsSectionLabel: {
+      fontSize: 13,
+      fontWeight: FONT.semibold,
+      color: colors.textTertiary,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      marginTop: SPACING.lg,
+      marginBottom: SPACING.sm,
+      paddingHorizontal: SPACING.xs,
+    },
+    settingsGroup: {
+      backgroundColor: colors.surface,
+      borderRadius: RADII.md,
+      overflow: "hidden",
+    },
+    settingsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.md,
+      paddingVertical: SPACING.md,
+      paddingHorizontal: SPACING.md,
+    },
+    settingsRowDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+      marginLeft: SPACING.md + 20 + SPACING.md,
+    },
+    settingsRowText: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.textPrimary,
+    },
+    settingsVersionText: {
+      fontSize: 14,
+      color: colors.textTertiary,
     },
   });
 }

@@ -3496,6 +3496,14 @@ export function ChatScreen({
     [stopVoicePlayback, stopVoiceCapture],
   );
 
+  const deleteAllChats = useCallback(() => {
+    stopVoicePlayback();
+    stopVoiceCapture();
+    setChats([]);
+    setSelectedChatIdsByMode({ chat: null, translation: null });
+    void AsyncStorage.multiRemove([CHATS_STORAGE_KEY, ACTIVE_CHAT_ID_KEY]);
+  }, [stopVoicePlayback, stopVoiceCapture]);
+
   const agentRef = useRef<Agent | null>(null);
 
   const runAgentGeneration = useCallback(
@@ -4587,6 +4595,9 @@ export function ChatScreen({
   const openDefaultModelCatalog = useCallback(() => {
     openModelCatalog("0.8B");
   }, [openModelCatalog]);
+  const openManageModels = useCallback(() => {
+    openModelCatalog("downloaded");
+  }, [openModelCatalog]);
   const openCurrentModeModelCatalog = useCallback(() => {
     openModelCatalog(isTranslationMode ? "translation" : "0.8B");
   }, [isTranslationMode, openModelCatalog]);
@@ -4808,6 +4819,8 @@ export function ChatScreen({
           onOpenFileVault={openFileVault}
           onOpenTranslation={openTranslationMode}
           onOpenModelCatalog={openDefaultModelCatalog}
+          onManageModels={openManageModels}
+          onDeleteAllChats={deleteAllChats}
           activeMode={activeChatMode}
           onClose={closeSidebar}
         />
