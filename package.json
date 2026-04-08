@@ -74,7 +74,7 @@
     "expo-image-picker": "~55.0.16",
     "expo-splash-screen": "~55.0.15",
     "expo-status-bar": "~55.0.5",
-    "llama.rn": "github:zhi-x-ye/llama.rn#b7acb0cba75124dc1a3c8fea18c82a60c03c08ef",
+    "llama.rn": "github:zhi-x-ye/llama.rn#76f27cd02a6086faf7bb72b299b8ac5551800255",
     "onnxruntime-react-native": "^1.24.3",
     "phonemizer": "^1.2.1",
     "punycode": "^2.3.1",
