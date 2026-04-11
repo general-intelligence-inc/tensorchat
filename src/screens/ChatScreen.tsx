@@ -42,6 +42,7 @@ import { ModelPickerDropdown } from "../components/ModelPickerDropdown";
 import { ChatHeader } from "../components/ChatHeader";
 import { ChatInput } from "../components/ChatInput";
 import { ChatEmptyState } from "../components/ChatEmptyState";
+import { CameraCaptureModal } from "../components/CameraCaptureModal";
 import { ModelCatalogScreen } from "../screens/ModelCatalogScreen";
 import { FileVaultScreen } from "../screens/FileVaultScreen";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -1783,7 +1784,9 @@ export function ChatScreen({
   const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     loadModel,
+    unloadModel,
     loadedModelPath,
+    loadedMmprojPath,
     loadedContextSize,
     isLoading,
     isGenerating,
@@ -1959,6 +1962,18 @@ export function ChatScreen({
     string | null
   >(null);
   const [isCompressingImage, setIsCompressingImage] = useState(false);
+  const [isCameraCaptureVisible, setIsCameraCaptureVisible] = useState(false);
+  const cameraSavedModelRef = useRef<{
+    modelPath: string;
+    mmprojPath: string | null;
+  } | null>(null);
+  // While the camera flow is running we deliberately unload the llama model to
+  // free memory for the camera session. This ref gates the auto-load effect
+  // (the one that re-loads a model whenever loadedModelPath is null) so it
+  // does NOT race our unload by immediately reloading the model in parallel
+  // with the camera opening — that race was what kept crashing the app even
+  // after the earlier memory fix.
+  const cameraFlowActiveRef = useRef(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const attachMenuAnim = useRef(new Animated.Value(0)).current;
   const modelPillRef = useRef<View>(null);
@@ -2048,6 +2063,9 @@ export function ChatScreen({
       || isLoading
       || isTranslationLoading
       || isGenerating
+      // Camera flow deliberately unloaded the model to free memory; don't
+      // race-reload it while the camera session is live.
+      || cameraFlowActiveRef.current
     ) {
       return;
     }
@@ -2612,12 +2630,17 @@ export function ChatScreen({
     }).start();
   }, [activeLoadedModelPath, attachMenuAnim, isTranslationMode]);
 
-  const closeAttachMenu = useCallback(() => {
-    Animated.timing(attachMenuAnim, {
-      toValue: 0,
-      duration: 120,
-      useNativeDriver: true,
-    }).start(() => setAttachMenuOpen(false));
+  const closeAttachMenu = useCallback((): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      Animated.timing(attachMenuAnim, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start(() => {
+        setAttachMenuOpen(false);
+        resolve();
+      });
+    });
   }, [attachMenuAnim]);
 
   useEffect(() => {
@@ -2933,53 +2956,149 @@ export function ChatScreen({
     [deleteSource, removeSourceFromAllChats],
   );
 
+  // Camera capture now goes through our own full-screen Modal (CameraCaptureModal)
+  // backed by expo-camera's CameraView, because UIImagePickerController's camera
+  // controls (shutter, flip, flash) are broken in this RN-new-arch / iOS 26
+  // environment — cancel would work but nothing else would, and the Promise
+  // never resolved. With expo-camera we own every button.
   const pickFromCamera = useCallback(async () => {
-    closeAttachMenu();
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return;
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      quality: 1,
-    });
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
+    console.log("[camera] pickFromCamera: begin");
+    await closeAttachMenu();
+
+    // Snapshot the current llama model so we can restore it after the camera
+    // closes. iPhone's app memory budget (~3 GB on iPhone 14 Pro Max) is
+    // easily exceeded by a ~2.5 GB GGUF model plus the buffers the camera
+    // session allocates — iOS then jetsams the app. We unload here and reload
+    // inside the capture / cancel handlers below.
+    cameraSavedModelRef.current = loadedModelPath
+      ? { modelPath: loadedModelPath, mmprojPath: loadedMmprojPath ?? null }
+      : null;
+
+    // Gate the auto-load effect BEFORE we touch loadedModelPath — this ref is
+    // read synchronously by the effect on its next run, so by the time
+    // unloadModel() sets loadedModelPath to null, the effect's early-return
+    // already knows we're in a camera flow and won't try to reload.
+    cameraFlowActiveRef.current = true;
+
+    try {
+      if (cameraSavedModelRef.current) {
+        console.log("[camera] unloading llama model to free memory for camera");
+        await unloadModel();
+        // Give iOS a tick to actually reclaim the freed pages before the
+        // camera session starts allocating its own.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      setIsCameraCaptureVisible(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.log("[camera] error:", message);
+      Alert.alert("Camera error", message);
+      // If unload failed but we already recorded a saved model, try to leave
+      // the app in the state we found it.
+      const saved = cameraSavedModelRef.current;
+      cameraSavedModelRef.current = null;
+      if (saved) {
+        try {
+          await loadModel(saved.modelPath, saved.mmprojPath ?? undefined);
+        } catch {
+          // swallow — user already saw the error alert above
+        }
+      }
+      cameraFlowActiveRef.current = false;
+    }
+  }, [closeAttachMenu, loadedModelPath, loadedMmprojPath, unloadModel, loadModel]);
+
+  const reloadSavedModelAfterCamera = useCallback(async () => {
+    const saved = cameraSavedModelRef.current;
+    cameraSavedModelRef.current = null;
+    if (!saved) {
+      cameraFlowActiveRef.current = false;
+      return;
+    }
+    console.log("[camera] reloading llama model after camera");
+    try {
+      await loadModel(saved.modelPath, saved.mmprojPath ?? undefined);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.log("[camera] model reload failed:", message);
+      Alert.alert("Model reload failed", message);
+    } finally {
+      // Release the gate so the normal auto-load effect can resume its job
+      // (and recover if our explicit reload failed).
+      cameraFlowActiveRef.current = false;
+    }
+  }, [loadModel]);
+
+  const handleCameraCancel = useCallback(() => {
+    console.log("[camera] user cancelled");
+    setIsCameraCaptureVisible(false);
+    void reloadSavedModelAfterCamera();
+  }, [reloadSavedModelAfterCamera]);
+
+  const handleCameraCapture = useCallback(
+    async (asset: { uri: string; width: number; height: number }) => {
+      console.log(
+        "[camera] captured; uri=",
+        asset.uri,
+        "w=",
+        asset.width,
+        "h=",
+        asset.height,
+      );
+      setIsCameraCaptureVisible(false);
       setPendingImageDisplayUri(asset.uri);
       setIsCompressingImage(true);
-      try {
-        const dataUrl = await compressImageToBase64(
-          asset.uri,
-          asset.width,
-          asset.height,
-        );
-        setPendingImageUri(dataUrl);
-      } finally {
-        setIsCompressingImage(false);
-      }
-    }
-  }, [closeAttachMenu]);
+      // Kick off compression and model reload in parallel — neither depends
+      // on the other, and both can take a noticeable amount of time.
+      const compressPromise = (async () => {
+        try {
+          const dataUrl = await compressImageToBase64(
+            asset.uri,
+            asset.width,
+            asset.height,
+          );
+          setPendingImageUri(dataUrl);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.log("[camera] compression failed:", message);
+          Alert.alert("Image processing failed", message);
+          setPendingImageDisplayUri(null);
+        } finally {
+          setIsCompressingImage(false);
+        }
+      })();
+      await Promise.all([compressPromise, reloadSavedModelAfterCamera()]);
+    },
+    [reloadSavedModelAfterCamera],
+  );
 
   const pickFromLibrary = useCallback(async () => {
-    closeAttachMenu();
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 1,
-    });
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      setPendingImageDisplayUri(asset.uri);
-      setIsCompressingImage(true);
-      try {
-        const dataUrl = await compressImageToBase64(
-          asset.uri,
-          asset.width,
-          asset.height,
-        );
-        setPendingImageUri(dataUrl);
-      } finally {
-        setIsCompressingImage(false);
+    await closeAttachMenu();
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return;
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 1,
+      });
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        setPendingImageDisplayUri(asset.uri);
+        setIsCompressingImage(true);
+        try {
+          const dataUrl = await compressImageToBase64(
+            asset.uri,
+            asset.width,
+            asset.height,
+          );
+          setPendingImageUri(dataUrl);
+        } finally {
+          setIsCompressingImage(false);
+        }
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      Alert.alert("Photo library error", message);
     }
   }, [closeAttachMenu]);
 
@@ -5052,6 +5171,12 @@ export function ChatScreen({
         onClose={handleHideModelPicker}
         onOpenModelCatalog={openCurrentModeModelCatalog}
         anchorRef={modelPillRef}
+      />
+
+      <CameraCaptureModal
+        visible={isCameraCaptureVisible}
+        onCancel={handleCameraCancel}
+        onCapture={handleCameraCapture}
       />
     </SafeAreaView>
   );

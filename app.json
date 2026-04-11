@@ -85,6 +85,13 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "TensorChat needs access to your camera to take photos for your messages.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "ios": {
