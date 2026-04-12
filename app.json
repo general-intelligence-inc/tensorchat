@@ -2,7 +2,7 @@
   "expo": {
     "name": "TensorChat",
     "slug": "tensorchat",
-    "version": "1.4.10",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/tensorchat-dark/Assets.xcassets/AppIcon.appiconset/1024.png",
     "userInterfaceStyle": "automatic",
