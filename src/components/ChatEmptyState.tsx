@@ -10,7 +10,7 @@ import {
 
 interface ChatEmptyStateProps {
   topInset: number;
-  mode?: "chat" | "translation";
+  mode?: "chat" | "translation" | "miniapp";
   isIncognito?: boolean;
   isModelReady?: boolean;
   isModelLoading?: boolean;
@@ -78,7 +78,13 @@ export function ChatEmptyState({
                 : isModelReady
                   ? "Translation mode is ready on-device"
                   : "Choose a translation model to start translating"
-              : "Loading chat model"
+              : mode === "miniapp"
+                ? isModelLoading
+                  ? "Loading Gemma 4 E2B for mini apps"
+                  : isModelReady
+                    ? "Describe a mini app you want to build"
+                    : "Download Gemma 4 E2B to start building mini apps"
+                : "Loading chat model"
           }
           textColor={colors.textSecondary}
           hidden

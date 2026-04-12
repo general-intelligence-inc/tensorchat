@@ -38,7 +38,7 @@ export interface ChatSummary {
   id: string;
   title: string;
   createdAt: number;
-  mode?: "chat" | "translation";
+  mode?: "chat" | "translation" | "miniapp";
 }
 
 const THREAD_ACTIONS_WIDTH = 96;
@@ -56,10 +56,11 @@ interface SidebarProps {
   onOpenTensorChat: () => void;
   onOpenFileVault: () => void;
   onOpenTranslation: () => void;
+  onOpenMiniApps?: () => void;
   onOpenModelCatalog: () => void;
   onManageModels: () => void;
   onDeleteAllChats: () => void;
-  activeMode: "chat" | "translation";
+  activeMode: "chat" | "translation" | "miniapp";
   onClose: () => void;
 }
 
@@ -355,6 +356,7 @@ function SidebarComponent({
   onOpenTensorChat,
   onOpenFileVault,
   onOpenTranslation,
+  onOpenMiniApps,
   onOpenModelCatalog,
   onManageModels,
   onDeleteAllChats,
@@ -513,6 +515,40 @@ function SidebarComponent({
             Translation
           </Text>
         </TouchableOpacity>
+
+        {onOpenMiniApps ? (
+          <TouchableOpacity
+            style={[
+              styles.navRow,
+              activeMode === "miniapp" && styles.navRowActive,
+            ]}
+            onPress={() => {
+              onOpenMiniApps();
+              onClose();
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.navIcon}>
+              <Ionicons
+                name="apps-outline"
+                size={20}
+                color={
+                  activeMode === "miniapp"
+                    ? colors.accent
+                    : colors.textSecondary
+                }
+              />
+            </View>
+            <Text
+              style={[
+                styles.navRowText,
+                activeMode === "miniapp" && styles.navRowTextActive,
+              ]}
+            >
+              Mini Apps
+            </Text>
+          </TouchableOpacity>
+        ) : null}
 
         <TouchableOpacity
           style={styles.navRow}

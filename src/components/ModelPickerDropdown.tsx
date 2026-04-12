@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LlamaContext } from '../context/LlamaContext';
 import {
   ALL_MODELS,
+  MINIAPP_MODELS,
   TRANSLATION_MODELS,
   isLikelyCompleteModelFile,
   ModelConfig,
@@ -30,6 +31,9 @@ import {
   SELECTED_MODEL_KEY,
   SELECTED_TRANSLATION_MODEL_KEY,
 } from '../utils/loadableModels';
+import { SELECTED_MINIAPP_MODEL_KEY } from '../miniapps/types';
+import { getMiniAppContextSize } from '../agent/miniAppAgent';
+import { getDeviceTotalMemoryBytes } from '../utils/modelMemory';
 
 const MODELS_DIR = FileSystem.documentDirectory + 'models/';
 const DROPDOWN_WIDTH = 252;
@@ -41,7 +45,7 @@ interface AnchorMetrics {
 
 interface ModelPickerDropdownProps {
   visible: boolean;
-  mode: 'chat' | 'translation';
+  mode: 'chat' | 'translation' | 'miniapp';
   onClose: () => void;
   onOpenModelCatalog: () => void;
   anchorRef: React.RefObject<View | null>;
@@ -140,7 +144,12 @@ function ModelPickerDropdownComponent({
   }, [visible, anchorRef, onOpenModelCatalog, opacity, translateY]);
 
   const availableModels = useMemo<ModelConfig[]>(
-    () => (mode === 'translation' ? TRANSLATION_MODELS : ALL_MODELS),
+    () =>
+      mode === 'translation'
+        ? TRANSLATION_MODELS
+        : mode === 'miniapp'
+          ? MINIAPP_MODELS
+          : ALL_MODELS,
     [mode],
   );
 
@@ -207,16 +216,35 @@ function ModelPickerDropdownComponent({
           await AsyncStorage.setItem(SELECTED_TRANSLATION_MODEL_KEY, model.id);
           await loadTranslationModel(MODELS_DIR + model.filename);
         } else {
-          await AsyncStorage.setItem(SELECTED_MODEL_KEY, model.id);
+          // Mode-aware selection persistence. Miniapp mode writes to its
+          // own key and intentionally skips loading the mmproj sidecar so
+          // the chat-slot context is text-only. It also requests a larger
+          // context window to fit the system-prompt injection.
+          const selectionKey =
+            mode === 'miniapp' ? SELECTED_MINIAPP_MODEL_KEY : SELECTED_MODEL_KEY;
+          await AsyncStorage.setItem(selectionKey, model.id);
           let mmprojPath: string | undefined;
-          if (model.mmprojFilename) {
+          if (mode !== 'miniapp' && model.mmprojFilename) {
             const candidatePath = MODELS_DIR + model.mmprojFilename;
             const mmprojInfo = await FileSystem.getInfoAsync(candidatePath);
             if (mmprojInfo.exists) {
               mmprojPath = candidatePath;
             }
           }
-          await loadModel(MODELS_DIR + model.filename, mmprojPath);
+          const loadOptions =
+            mode === 'miniapp'
+              ? {
+                  contextSize: getMiniAppContextSize(
+                    model.sizeGB,
+                    getDeviceTotalMemoryBytes(),
+                  ),
+                }
+              : undefined;
+          await loadModel(
+            MODELS_DIR + model.filename,
+            mmprojPath,
+            loadOptions,
+          );
         }
       } finally {
         setLoadingModelId(null);
@@ -277,7 +305,9 @@ function ModelPickerDropdownComponent({
             <Text style={styles.emptyText}>
               {mode === 'translation'
                 ? 'No translation models downloaded yet.'
-                : 'No chat models downloaded yet.'}
+                : mode === 'miniapp'
+                  ? 'No mini-app models downloaded yet.'
+                  : 'No chat models downloaded yet.'}
             </Text>
           </View>
         ) : (

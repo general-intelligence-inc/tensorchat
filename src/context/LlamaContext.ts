@@ -13,7 +13,7 @@ const defaultContext: UseLlamaReturn = {
   isTranslationGenerating: false,
   loadedTranslationModelPath: null,
   translationError: null,
-  loadModel: async () => false,
+  loadModel: async (_modelPath: string, _mmprojPath?: string, _options?: { contextSize?: number }) => false,
   unloadModel: async () => {},
   loadTranslationModel: async () => false,
   unloadTranslationModel: async () => {},

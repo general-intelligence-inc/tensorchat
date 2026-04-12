@@ -318,6 +318,30 @@ export const MODELS_E2B: ModelConfig[] = [
   GEMMA_E2B_IQ2_MODEL,
 ];
 
+/**
+ * Models eligible for the Mini Apps builder. Tested end-to-end against
+ * the full 21-scenario e2e suite (scripts/test-miniapp-e2e.ts) with
+ * thinking OFF (matching the production 16k context budget):
+ *
+ *   Qwen 3.5 4B Q4_K_M — 20/21 (95%)  ← best without thinking
+ *   Gemma 4 E2B Q4_K_M — 16/21 (76%)
+ *   Gemma 4 E2B IQ2_M  — (extrapolated from Q4_K_M, slightly worse)
+ *   Qwen 3.5 2B Q4_K_M — 12/21 (57%)  ← excluded, too unreliable
+ *
+ * Order matters: the first model the user has downloaded becomes the
+ * preferred fallback via `findPreferredLoadableMiniAppModelCandidate`.
+ * Qwen 4B Q4 is listed first (best quality), followed by E2B variants.
+ */
+export const MINIAPP_MODELS: ModelConfig[] = [
+  // Qwen 3.5 4B — highest success rate without thinking mode.
+  // Only Q4_K_M (2.74 GB) — Q3_K_M showed no difference in our eval
+  // and the user already has the Q4 downloaded in most cases.
+  ...MODELS_4B.filter((m) => m.quantization === "Q4_K_M"),
+  // Gemma 4 E2B — both Q4_K_M (3.11 GB, has vision in chat mode)
+  // and IQ2_M (2.29 GB, text-only, smaller).
+  ...MODELS_E2B,
+];
+
 export const MODELS_350M: ModelConfig[] = buildModels(CHAT_MODEL_FAMILY_350M);
 
 export const MODELS_12B: ModelConfig[] = buildModels(CHAT_MODEL_FAMILY_12B);

@@ -26,6 +26,18 @@ interface ChatHeaderProps {
   onModelPillPress: () => void;
   onStartIncognitoChat: () => void;
   onNewChat: () => void;
+  /**
+   * When true, hide the right-side action cluster (new-chat `+` and
+   * incognito/ghost toggle). Used for Mini Apps mode where the home grid
+   * owns the `+ New` affordance and ghost mode doesn't apply.
+   */
+  hideRightActions?: boolean;
+  /**
+   * When provided, render a home icon in the right action slot that
+   * returns the user to the mini-apps home grid. Only used when
+   * `hideRightActions` is true — i.e. Mini Apps chat view.
+   */
+  onHomePress?: () => void;
 }
 
 function ChatHeaderComponent({
@@ -40,6 +52,8 @@ function ChatHeaderComponent({
   onModelPillPress,
   onStartIncognitoChat,
   onNewChat,
+  hideRightActions = false,
+  onHomePress,
 }: ChatHeaderProps): React.JSX.Element {
   const { colors, scheme } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -99,35 +113,56 @@ function ChatHeaderComponent({
           </View>
 
           <View style={styles.actionsGroup}>
-            <GlassView isInteractive colorScheme={glassScheme} style={styles.iconGlass}>
-              <TouchableOpacity
-                testID="new-chat-button"
-                style={styles.iconGlassInner}
-                onPress={onNewChat}
-                hitSlop={10}
-                disabled={isGenerating}
-              >
-                <Ionicons name="add" size={22} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </GlassView>
+            {hideRightActions ? (
+              onHomePress ? (
+                <GlassView isInteractive colorScheme={glassScheme} style={styles.iconGlass}>
+                  <TouchableOpacity
+                    testID="miniapp-home-button"
+                    style={styles.iconGlassInner}
+                    onPress={onHomePress}
+                    hitSlop={10}
+                  >
+                    <Ionicons
+                      name="grid-outline"
+                      size={20}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </GlassView>
+              ) : null
+            ) : (
+              <>
+                <GlassView isInteractive colorScheme={glassScheme} style={styles.iconGlass}>
+                  <TouchableOpacity
+                    testID="new-chat-button"
+                    style={styles.iconGlassInner}
+                    onPress={onNewChat}
+                    hitSlop={10}
+                    disabled={isGenerating}
+                  >
+                    <Ionicons name="add" size={22} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </GlassView>
 
-            <GlassView isInteractive colorScheme={glassScheme} style={styles.iconGlass}>
-              <TouchableOpacity
-                style={[
-                  styles.iconGlassInner,
-                  incognitoActive && styles.iconButtonActive,
-                ]}
-                onPress={onStartIncognitoChat}
-                hitSlop={10}
-                disabled={isGenerating}
-              >
-                <MaterialCommunityIcons
-                  name="ghost-outline"
-                  size={20}
-                  color={incognitoActive ? colors.accent : colors.textSecondary}
-                />
-              </TouchableOpacity>
-            </GlassView>
+                <GlassView isInteractive colorScheme={glassScheme} style={styles.iconGlass}>
+                  <TouchableOpacity
+                    style={[
+                      styles.iconGlassInner,
+                      incognitoActive && styles.iconButtonActive,
+                    ]}
+                    onPress={onStartIncognitoChat}
+                    hitSlop={10}
+                    disabled={isGenerating}
+                  >
+                    <MaterialCommunityIcons
+                      name="ghost-outline"
+                      size={20}
+                      color={incognitoActive ? colors.accent : colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </GlassView>
+              </>
+            )}
           </View>
         </View>
       </View>
@@ -153,28 +188,47 @@ function ChatHeaderComponent({
           </View>
 
           <View style={styles.actionsGroup}>
-            <TouchableOpacity
-              testID="new-chat-button"
-              style={styles.newChatBtn}
-              onPress={onNewChat}
-              hitSlop={10}
-              disabled={isGenerating}
-            >
-              <Ionicons name="add" size={24} color={colors.textSecondary} />
-            </TouchableOpacity>
+            {hideRightActions ? (
+              onHomePress ? (
+                <TouchableOpacity
+                  testID="miniapp-home-button"
+                  style={styles.newChatBtn}
+                  onPress={onHomePress}
+                  hitSlop={10}
+                >
+                  <Ionicons
+                    name="grid-outline"
+                    size={22}
+                    color={colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              ) : null
+            ) : (
+              <>
+                <TouchableOpacity
+                  testID="new-chat-button"
+                  style={styles.newChatBtn}
+                  onPress={onNewChat}
+                  hitSlop={10}
+                  disabled={isGenerating}
+                >
+                  <Ionicons name="add" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.newChatBtn, incognitoActive && styles.iconButtonActive]}
-              onPress={onStartIncognitoChat}
-              hitSlop={10}
-              disabled={isGenerating}
-            >
-              <MaterialCommunityIcons
-                name="ghost-outline"
-                size={20}
-                color={incognitoActive ? colors.accent : colors.textSecondary}
-              />
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.newChatBtn, incognitoActive && styles.iconButtonActive]}
+                  onPress={onStartIncognitoChat}
+                  hitSlop={10}
+                  disabled={isGenerating}
+                >
+                  <MaterialCommunityIcons
+                    name="ghost-outline"
+                    size={20}
+                    color={incognitoActive ? colors.accent : colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       </View>

@@ -21,11 +21,16 @@ import { useLlama } from './src/hooks/useLlama';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import {
+  findPreferredLoadableMiniAppModelCandidate,
   findPreferredLoadableModelCandidate,
   SELECTED_MODEL_KEY,
 } from './src/utils/loadableModels';
+import { SELECTED_MINIAPP_MODEL_KEY } from './src/miniapps/types';
+import { MINIAPP_CONTEXT_SIZE } from './src/agent/miniAppAgent';
 import { isModelAllowedByDeviceMemory } from './src/utils/modelMemory';
 import { logBootStep } from './src/utils/bootTrace';
+
+const ACTIVE_CHAT_MODE_KEY = 'tensorchat_active_chat_mode';
 
 const MIN_BOOT_SCREEN_VISIBLE_MS = 900;
 const APP_READY_FALLBACK_MS = 1200;
@@ -65,6 +70,7 @@ async function hideNativeSplashWithRetry(): Promise<void> {
 interface StartupLoadCandidate {
   modelPath: string;
   mmprojPath?: string;
+  contextSize?: number;
 }
 
 export default function App(): React.JSX.Element {
@@ -121,11 +127,33 @@ export default function App(): React.JSX.Element {
       logBootStep('Startup prepare started');
 
       try {
-        const savedId = await AsyncStorage.getItem(SELECTED_MODEL_KEY);
-        logBootStep(savedId ? 'Found saved model selection' : 'No saved model selection');
-        const candidate = await findPreferredLoadableModelCandidate(savedId, {
-          isModelEligible: isModelAllowedByDeviceMemory,
-        });
+        // Startup is mode-aware: if the user was last in miniapp mode, we
+        // restore a Qwen 3.5 2B model for that mode (text-only, no mmproj).
+        // Translation mode has its own loading path inside ChatScreen, so we
+        // default to the regular chat model slot for everything else.
+        const lastActiveMode = await AsyncStorage.getItem(ACTIVE_CHAT_MODE_KEY);
+        const isMiniAppStartup = lastActiveMode === 'miniapp';
+
+        const selectionKey = isMiniAppStartup
+          ? SELECTED_MINIAPP_MODEL_KEY
+          : SELECTED_MODEL_KEY;
+        const savedId = await AsyncStorage.getItem(selectionKey);
+        logBootStep(
+          savedId
+            ? `Found saved model selection (${isMiniAppStartup ? 'miniapp' : 'chat'})`
+            : 'No saved model selection',
+        );
+
+        // For miniapp mode, prefer ANY downloaded 2B variant as a fallback
+        // so first-time users get a working model without having to pin a
+        // preference first. For chat mode, keep the existing broad search.
+        const candidate = isMiniAppStartup
+          ? await findPreferredLoadableMiniAppModelCandidate(savedId, {
+              isModelEligible: isModelAllowedByDeviceMemory,
+            })
+          : await findPreferredLoadableModelCandidate(savedId, {
+              isModelEligible: isModelAllowedByDeviceMemory,
+            });
 
         if (cancelled) {
           return;
@@ -134,7 +162,7 @@ export default function App(): React.JSX.Element {
         if (candidate) {
           logBootStep(`Resolved startup model candidate: ${candidate.model.id}`);
           if (candidate.model.id !== savedId) {
-            await AsyncStorage.setItem(SELECTED_MODEL_KEY, candidate.model.id);
+            await AsyncStorage.setItem(selectionKey, candidate.model.id);
           }
 
           if (cancelled) {
@@ -144,11 +172,19 @@ export default function App(): React.JSX.Element {
           setStartupAutoloadPending(true);
           setStartupLoadCandidate({
             modelPath: candidate.modelPath,
-            ...(candidate.mmprojPath ? { mmprojPath: candidate.mmprojPath } : {}),
+            // Miniapp mode never loads the mmproj sidecar — vision is
+            // intentionally disabled per the feature brief.
+            ...(candidate.mmprojPath && !isMiniAppStartup
+              ? { mmprojPath: candidate.mmprojPath }
+              : {}),
+            // Miniapp mode requests a larger context window so the system
+            // prompt injection + tool grammar overhead + app-code output
+            // all fit comfortably.
+            ...(isMiniAppStartup ? { contextSize: MINIAPP_CONTEXT_SIZE } : {}),
           });
         } else if (savedId) {
           logBootStep('Saved model missing; clearing stored selection');
-          await AsyncStorage.removeItem(SELECTED_MODEL_KEY);
+          await AsyncStorage.removeItem(selectionKey);
         } else {
           logBootStep('No startup model candidate found');
         }
@@ -186,6 +222,9 @@ export default function App(): React.JSX.Element {
         const didLoadModel = await loadModel(
           startupLoadCandidate.modelPath,
           startupLoadCandidate.mmprojPath,
+          startupLoadCandidate.contextSize != null
+            ? { contextSize: startupLoadCandidate.contextSize }
+            : undefined,
         );
 
         if (didLoadModel) {

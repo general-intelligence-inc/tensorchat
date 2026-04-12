@@ -161,7 +161,11 @@ export interface UseLlamaReturn {
   isTranslationGenerating: boolean;
   loadedTranslationModelPath: string | null;
   translationError: string | null;
-  loadModel: (modelPath: string, mmprojPath?: string) => Promise<boolean>;
+  loadModel: (
+    modelPath: string,
+    mmprojPath?: string,
+    options?: LlamaLoadOptions,
+  ) => Promise<boolean>;
   unloadModel: () => Promise<void>;
   loadTranslationModel: (modelPath: string) => Promise<boolean>;
   unloadTranslationModel: () => Promise<void>;
@@ -190,6 +194,24 @@ export interface LlamaGenerationOptions {
   thinkingBudget?: ThinkingBudget;
   tools?: LlamaToolDefinition[];
   toolChoice?: string;
+  /**
+   * Override the per-call output token cap (`n_predict`). When omitted, the
+   * value is derived from `getGenerationTokenBudget` (DEFAULT_GENERATION_TOKENS
+   * for non-thinking mode, or the thinking-budget value). Callers that need
+   * more output room (e.g. Mini Apps generating full html/css/js in one
+   * tool-call) can pass a larger value here.
+   */
+  maxGenerationTokens?: number;
+}
+
+export interface LlamaLoadOptions {
+  /**
+   * Context window size passed to `initLlama` as `n_ctx`. Defaults to 8192
+   * which fits most chat use cases in ~512 MB–1 GB of KV cache RAM. Mini
+   * Apps mode bumps this to 16384 to make room for a system prompt that
+   * injects the current app code plus grammar-constrained tool output.
+   */
+  contextSize?: number;
 }
 
 export interface LlamaPromptTokenCountOptions {
@@ -423,6 +445,7 @@ function buildMessageFormattingParams(
   jinja: true;
   enable_thinking: boolean;
   reasoning_format: "none" | "auto";
+  chat_template_kwargs?: Record<string, string | boolean | number>;
   tools?: LlamaToolDefinition[];
   tool_choice?: string;
   parallel_tool_calls?: boolean;
@@ -433,12 +456,35 @@ function buildMessageFormattingParams(
   const hasImage = hasImageMessages(messages);
   const needsReasoningFormat = thinking || alwaysThinks;
 
+  // Explicitly pass enable_thinking through BOTH the top-level
+  // `enable_thinking` flag AND the Jinja `chat_template_kwargs`.
+  //
+  // Why both: some model templates (Qwen 3.5) read `enable_thinking`
+  // from the template kwargs rather than from the top-level flag.
+  // Without this, the template opens a `<think>` block even when
+  // `enable_thinking: false` is set at the top level, causing the
+  // model to waste its entire output budget on reasoning tokens
+  // instead of producing the tool call. This was observed in
+  // production with Qwen 3.5 4B on the mini-app builder — the model
+  // burned 180s of inference time on thinking and never emitted a
+  // tool call.
+  const enableThinking =
+    hasImage || alwaysThinks ? false : needsReasoningFormat;
+
   return {
     jinja: true,
-    // alwaysThinks models handle <think> tokens natively — enable_thinking
-    // would cause the jinja template to add extra thinking scaffolding that
-    // conflicts with the model's native thinking behavior.
-    enable_thinking: hasImage || alwaysThinks ? false : needsReasoningFormat,
+    enable_thinking: enableThinking,
+    // Only pass chat_template_kwargs when we're SUPPRESSING thinking.
+    // Some templates (Qwen 3.5) read `enable_thinking` from kwargs
+    // instead of the top-level flag — without this kwarg, Qwen opens
+    // a <think> block and wastes the entire output budget on reasoning.
+    //
+    // We DON'T pass the kwarg when thinking is enabled because some
+    // templates (Gemma 4) don't expect it and may produce empty or
+    // malformed output when they see an unrecognized kwarg.
+    ...(enableThinking
+      ? {}
+      : { chat_template_kwargs: { enable_thinking: false } }),
     // Models with nativeReasoning (e.g. Gemma 4) or alwaysThinks (e.g. LFM
     // 1.2B Thinking) handle thinking via their template natively — using
     // reasoning_format "auto" would generate a GBNF grammar that conflicts
@@ -497,6 +543,16 @@ export function useLlama(): UseLlamaReturn {
   const multimodalEnabledRef = useRef(false);
   const translationContextRef = useRef<LlamaContext | null>(null);
   const translationStoppedRef = useRef(false);
+  /**
+   * Guard against `loadModel` racing with an in-flight `generateResponse`.
+   * Set to true at the start of `loadModel` (before releasing the context)
+   * and cleared when loading finishes. `generateResponse` refuses to start
+   * while this is true, and existing completions are stopped before the
+   * load proceeds. Prevents the "stale contextRef during load" crash that
+   * can happen when the miniapp mode-switch effect fires during a slow
+   * initial build.
+   */
+  const contextBusyRef = useRef(false);
 
   const releaseContext = useCallback(async (context: LlamaContext | null) => {
     if (!context) {
@@ -521,7 +577,11 @@ export function useLlama(): UseLlamaReturn {
   }, []);
 
   const loadModel = useCallback(
-    async (modelPath: string, mmprojPath?: string) => {
+    async (
+      modelPath: string,
+      mmprojPath?: string,
+      options?: LlamaLoadOptions,
+    ) => {
       if (!initLlama) {
         setError("llama.rn is not available on this platform");
         return false;
@@ -529,6 +589,18 @@ export function useLlama(): UseLlamaReturn {
 
       setIsLoading(true);
       setError(null);
+      // Mark context busy BEFORE releasing anything so a racing
+      // generateResponse call refuses to start instead of trying to use
+      // the soon-to-be-freed context.
+      contextBusyRef.current = true;
+      // Nudge any in-flight generation to stop so the release below
+      // doesn't tear out a context that's still being read.
+      try {
+        if (contextRef.current) {
+          isStoppedRef.current = true;
+          await contextRef.current.stopCompletion();
+        }
+      } catch {}
 
       try {
         // Chat and translation runtimes are mutually exclusive.
@@ -548,10 +620,11 @@ export function useLlama(): UseLlamaReturn {
         setLoadedMmprojPath(null);
         setLoadedContextSize(null);
 
-        // Use an 8192-token context window for both text and vision models.
-        // This gives the agent loop enough room for multi-step tool calls
-        // while still fitting comfortably in ~512 MB–1 GB of KV cache RAM.
-        const contextSize = 8192;
+        // Default 8192-token context window fits most chat use cases in
+        // ~512 MB–1 GB of KV cache RAM. Callers can request a larger window
+        // (e.g. Mini Apps mode passes 16384 so the system prompt injection +
+        // tool-grammar overhead + app-code output all fit comfortably).
+        const contextSize = options?.contextSize ?? 8192;
         const ctx = await initLlama({
           model: modelPath,
           n_ctx: contextSize,
@@ -609,6 +682,7 @@ export function useLlama(): UseLlamaReturn {
         return false;
       } finally {
         setIsLoading(false);
+        contextBusyRef.current = false;
       }
     },
     [releaseContext],
@@ -757,6 +831,13 @@ export function useLlama(): UseLlamaReturn {
       if (!contextRef.current) {
         throw new Error("No model loaded. Please load a model first.");
       }
+      // Refuse to start if a loadModel is mid-flight. The old context
+      // may have been released already and `contextRef.current` could
+      // point at a soon-to-be-freed object. Return a clear error that
+      // the harness can classify as hard-failure and bail.
+      if (contextBusyRef.current) {
+        throw new Error("Model is being loaded — cannot generate right now.");
+      }
 
       setIsGenerating(true);
       setError(null);
@@ -777,11 +858,17 @@ export function useLlama(): UseLlamaReturn {
             )
           : 0;
       const shouldVerifyReasoningTokenCount = reasoningTokenLimit > 0;
-      const maxGenerationTokens = getGenerationTokenBudget(
-        isMessages,
-        thinking,
-        options?.thinkingBudget,
-      );
+      // Explicit `maxGenerationTokens` override takes priority over the
+      // budget derived from thinking state. Callers (e.g. the Mini Apps
+      // agent factory) need to bump this above the 1024-token default to
+      // fit a full html/css/js tool call in one generation.
+      const maxGenerationTokens =
+        options?.maxGenerationTokens
+        ?? getGenerationTokenBudget(
+          isMessages,
+          thinking,
+          options?.thinkingBudget,
+        );
       let rawAccum = "";
       let reasoningAccum = "";
       let responseAccum = "";

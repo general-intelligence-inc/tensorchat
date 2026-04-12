@@ -107,7 +107,7 @@ function createWaveStyles(colors: ColorPalette) {
 
 interface ChatInputProps {
   inputRef: React.RefObject<TextInput | null>;
-  mode?: "chat" | "translation";
+  mode?: "chat" | "translation" | "miniapp";
   inputText: string;
   onChangeText: (text: string) => void;
   onOpenModelCatalog: () => void;
@@ -213,12 +213,18 @@ function ChatInputComponent({
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const isTranslationMode = mode === "translation";
+  const isMiniAppMode = mode === "miniapp";
+  // True when we should hide features that only make sense in regular chat
+  // mode (attach menu, thinking toggle, web search). Both translation and
+  // miniapp modes intentionally omit these.
+  const hideChatOnlyControls = isTranslationMode || isMiniAppMode;
   const canSend =
     !!(inputText.trim() || pendingImageUri) &&
     !!loadedModelPath &&
     !isCompressingImage;
+  // Mini apps are text-only, no thinking. Translation also never thinks.
   const canToggleReasoning =
-    modelSupportsThinking && !pendingImageUri && !webSearchEnabled;
+    modelSupportsThinking && !pendingImageUri && !webSearchEnabled && !isMiniAppMode;
   const voiceButtonDisabled = isGenerating || !voiceAvailable;
   const voiceIconColor = voiceAvailable
     ? colors.textSecondary
@@ -761,7 +767,7 @@ function ChatInputComponent({
         {!isRecordingVoice && !isTranscribingVoice && (
           <View style={styles.inputActions}>
             {/* Plus / attach button */}
-            {!isTranslationMode && isLiquidGlassAvailable() ? (
+            {!hideChatOnlyControls && isLiquidGlassAvailable() ? (
               <GlassView
                 isInteractive
                 style={[
@@ -784,7 +790,7 @@ function ChatInputComponent({
                   />
                 </TouchableOpacity>
               </GlassView>
-            ) : !isTranslationMode ? (
+            ) : !hideChatOnlyControls ? (
               <TouchableOpacity
                 testID="attach-button"
                 style={[
@@ -829,7 +835,7 @@ function ChatInputComponent({
               ))}
 
             {/* Thinking toggle */}
-            {!isTranslationMode ? (
+            {!hideChatOnlyControls ? (
               isLiquidGlassAvailable() ? (
                 <GlassView
                   isInteractive
@@ -900,7 +906,7 @@ function ChatInputComponent({
               )
             ) : null}
 
-            {!isTranslationMode && modelSupportsWebSearch ? (
+            {!hideChatOnlyControls && modelSupportsWebSearch ? (
               isLiquidGlassAvailable() ? (
                 <GlassView
                   isInteractive

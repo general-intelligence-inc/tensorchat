@@ -49,6 +49,8 @@ import {
   SELECTED_MODEL_KEY,
   SELECTED_TRANSLATION_MODEL_KEY,
 } from "../utils/loadableModels";
+import { SELECTED_MINIAPP_MODEL_KEY } from "../miniapps/types";
+import { getMiniAppContextSize } from "../agent/miniAppAgent";
 import {
   clearModelDownloadState,
   downloadCatalogModelInBackground,
@@ -791,12 +793,21 @@ export function ModelCatalogScreen({
   onChatModelsChanged,
   onChatModeSelected,
   onTranslationModeSelected,
+  onMiniAppModeSelected,
+  purpose = "chat",
 }: {
   onClose?: () => void;
   initialTab?: ModelCatalogTab;
   onChatModelsChanged?: () => void;
   onChatModeSelected?: () => void;
   onTranslationModeSelected?: () => void;
+  onMiniAppModeSelected?: () => void;
+  /**
+   * Which purpose the catalog is being opened for. Affects which
+   * `SELECTED_*_MODEL_KEY` is written when the user picks a chat model,
+   * and whether `onMiniAppModeSelected` is fired.
+   */
+  purpose?: "chat" | "translation" | "miniapp";
 }): React.JSX.Element {
   const { colors, scheme } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -1204,30 +1215,61 @@ export function ModelCatalogScreen({
 
       setLoadingModelId(model.id);
       try {
-        await AsyncStorage.setItem(SELECTED_MODEL_KEY, model.id);
+        // Write to the storage key matching the purpose the catalog was
+        // opened for. A user selecting a model "for mini apps" should not
+        // clobber their main chat model preference.
+        const targetKey =
+          purpose === "miniapp"
+            ? SELECTED_MINIAPP_MODEL_KEY
+            : SELECTED_MODEL_KEY;
+        await AsyncStorage.setItem(targetKey, model.id);
         setSelectedModelId(model.id);
-        // Pass mmproj path if file exists on disk
+        // In miniapp mode we intentionally skip loading the mmproj sidecar
+        // (vision is disabled per the feature brief) and request a larger
+        // context window. For chat mode, pass mmproj path if the file
+        // exists on disk and use the default context size.
         let mmprojPath: string | undefined;
-        if (model.mmprojFilename) {
+        if (purpose !== "miniapp" && model.mmprojFilename) {
           const mp = modelFilePath(model.mmprojFilename);
           const info = await FileSystem.getInfoAsync(mp);
           if (info.exists) mmprojPath = mp;
         }
+        const loadOptions =
+          purpose === "miniapp"
+            ? {
+                contextSize: getMiniAppContextSize(
+                  model.sizeGB,
+                  getDeviceTotalMemoryBytes(),
+                ),
+              }
+            : undefined;
         const didLoad = await loadModel(
           modelFilePath(model.filename),
           mmprojPath,
+          loadOptions,
         );
         if (!didLoad) {
           return;
         }
 
-        onChatModeSelected?.();
+        if (purpose === "miniapp") {
+          onMiniAppModeSelected?.();
+        } else {
+          onChatModeSelected?.();
+        }
         onClose?.();
       } finally {
         setLoadingModelId(null);
       }
     },
-    [deviceTotalMemoryBytes, loadModel, onChatModeSelected, onClose],
+    [
+      deviceTotalMemoryBytes,
+      loadModel,
+      onChatModeSelected,
+      onMiniAppModeSelected,
+      onClose,
+      purpose,
+    ],
   );
 
   const refreshVoiceModels = useCallback(async () => {

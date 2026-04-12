@@ -46,10 +46,12 @@ import { CameraCaptureModal } from "../components/CameraCaptureModal";
 import { ModelCatalogScreen } from "../screens/ModelCatalogScreen";
 import { FileVaultScreen } from "../screens/FileVaultScreen";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import RNFS from "react-native-fs";
 import { LlamaContext } from "../context/LlamaContext";
 import { useFileRagContext } from "../context/FileRagContext";
 import {
   ALL_MODELS,
+  MINIAPP_MODELS,
   getThinkingBudgetForModel,
   getTranslationModelByPath,
   type ModelConfig,
@@ -83,17 +85,60 @@ import { Agent } from "../agent/Agent";
 import { webSearchTool } from "../agent/tools";
 import type { AgentEvent, AgentResult } from "../agent/types";
 import {
+  buildMiniAppSystemPrompt,
+  createMiniAppAgent,
+  MINIAPP_CONTEXT_SIZE,
+  getMiniAppContextSize,
+} from "../agent/miniAppAgent";
+import {
+  createCancelToken,
+  runMiniAppHarness,
+  type CancelToken,
+  type HarnessStatus,
+  type TraceEvent,
+} from "../miniapps/harness";
+import { deriveAppIdentity } from "../miniapps/identity";
+import { MiniAppHome } from "../miniapps/MiniAppHome";
+import { MiniAppFullscreen } from "../miniapps/MiniAppFullscreen";
+import { DevTracePanel } from "../miniapps/DevTracePanel";
+import type { AttemptRecord } from "../miniapps/errorFeedback";
+import {
+  MiniAppChatView,
+  type MiniAppGenStatus,
+} from "../miniapps/MiniAppChatView";
+import {
+  deleteApp as deleteMiniApp,
+  getAppIdForChat,
+  migrateMiniAppsIfNeeded,
+  readIndex as readMiniAppIndex,
+  renameApp as renameMiniApp,
+  undoApp as undoMiniApp,
+} from "../miniapps/storage";
+import { deleteMemory as deleteMiniAppMemory } from "../miniapps/memory";
+import { MiniAppVerificationTracker } from "../miniapps/verifyLoop";
+import {
+  SELECTED_MINIAPP_MODEL_KEY,
+  type MiniApp,
+  type MiniAppIndexEntry,
+  type RuntimeError as MiniAppRuntimeError,
+} from "../miniapps/types";
+import {
+  findPreferredLoadableMiniAppModelCandidate,
   findPreferredLoadableModelCandidate,
   findPreferredLoadableTranslationModelCandidate,
   SELECTED_MODEL_KEY,
   SELECTED_TRANSLATION_MODEL_KEY,
 } from "../utils/loadableModels";
-import { isModelAllowedByDeviceMemory } from "../utils/modelMemory";
+import {
+  isModelAllowedByDeviceMemory,
+  getDeviceTotalMemoryBytes,
+} from "../utils/modelMemory";
 import { logBootStep } from "../utils/bootTrace";
 
 const CHATS_STORAGE_KEY = "tensorchat_chats";
 const ACTIVE_CHAT_ID_KEY = "tensorchat_active_chat_id";
 const ACTIVE_CHAT_MODE_KEY = "tensorchat_active_chat_mode";
+const RNFS_MODELS_DIR = `${RNFS.DocumentDirectoryPath}/models`;
 const MIN_MAIN_PANE_VISIBLE = 64;
 const MIN_SIDEBAR_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 360;
@@ -183,8 +228,12 @@ const DEFAULT_SETTINGS: ChatSettings = {
 const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful AI assistant. Be accurate, honest, and concise.";
 
-type ChatMode = "chat" | "translation";
+type ChatMode = "chat" | "translation" | "miniapp";
 type ChatSelectionState = Record<ChatMode, string | null>;
+
+function isChatMode(value: unknown): value is ChatMode {
+  return value === "chat" || value === "translation" || value === "miniapp";
+}
 type TranslationLanguageCode =
   | "auto"
   | "ar"
@@ -270,6 +319,7 @@ const DEFAULT_TRANSLATION_SETTINGS: TranslationChatSettings = {
 const DEFAULT_MODE_CHAT_SELECTION: ChatSelectionState = {
   chat: null,
   translation: null,
+  miniapp: null,
 };
 
 function buildFallbackTranslationLanguagePair(
@@ -436,10 +486,16 @@ interface Chat {
 }
 
 function makeNewChat(mode: ChatMode = "chat"): Chat {
+  const title =
+    mode === "translation"
+      ? "New Translation"
+      : mode === "miniapp"
+        ? "New Mini App"
+        : "New Chat";
   return {
     id: nextId(),
     mode,
-    title: mode === "translation" ? "New Translation" : "New Chat",
+    title,
     titleEdited: false,
     messages: [],
     sourceIds: [],
@@ -456,6 +512,7 @@ function makeDefaultModeDrafts(): Record<ChatMode, Chat> {
   return {
     chat: makeNewChat("chat"),
     translation: makeNewChat("translation"),
+    miniapp: makeNewChat("miniapp"),
   };
 }
 
@@ -1328,10 +1385,9 @@ function normalizeLoadedChat(rawChat: Chat): Chat {
 
   return {
     ...rawChat,
-    mode:
-      partialChat.mode === "translation"
-        ? "translation"
-        : "chat",
+    mode: isChatMode(partialChat.mode)
+      ? partialChat.mode
+      : "chat",
     titleEdited: typeof partialChat.titleEdited === "boolean"
       ? partialChat.titleEdited as boolean
       : false,
@@ -1359,8 +1415,9 @@ function resolveStartupChats(
   const savedActiveChat = rawActiveId
     ? parsedChats.find((chat) => chat.id === rawActiveId) ?? null
     : null;
-  const preferredStartupMode: ChatMode =
-    rawActiveMode === "translation" ? "translation" : "chat";
+  const preferredStartupMode: ChatMode = isChatMode(rawActiveMode)
+    ? rawActiveMode
+    : "chat";
 
   if (savedActiveChat) {
     selectedChatIdsByMode[savedActiveChat.mode] = savedActiveChat.id;
@@ -1375,7 +1432,7 @@ function resolveStartupChats(
     (chat) => chat.mode === preferredStartupMode,
   ) ?? null;
 
-  if (rawActiveMode === "chat" || rawActiveMode === "translation") {
+  if (isChatMode(rawActiveMode)) {
     if (preferredModeChat) {
       selectedChatIdsByMode[preferredStartupMode] = preferredModeChat.id;
     }
@@ -1851,6 +1908,87 @@ export function ChatScreen({
   const [incognitoChat, setIncognitoChat] = useState<Chat | null>(null);
   const [chatsLoaded, setChatsLoaded] = useState(false);
 
+  // Mini Apps mode state.
+  const [miniAppIndex, setMiniAppIndex] = useState<MiniAppIndexEntry[]>([]);
+  const [miniAppFullscreenId, setMiniAppFullscreenId] = useState<string | null>(
+    null,
+  );
+  // When true in miniapp mode, the main pane shows the home-screen grid
+  // instead of the chat body. Flipped to false when the user taps "+ New"
+  // or taps a tile (opening the owning chat).
+  const [miniAppHomeVisible, setMiniAppHomeVisible] = useState(true);
+  // Generation status for the active miniapp chat. Lives OUTSIDE the
+  // message list so the artifact-first view can show a transient strip
+  // without cluttering the chat with assistant text placeholders.
+  const [miniAppGenStatus, setMiniAppGenStatus] = useState<MiniAppGenStatus>(
+    { kind: "idle" },
+  );
+  // Mutex — true while a runMiniAppGeneration call is mid-flight. Used to
+  // (a) prevent concurrent agent runs, and (b) stop the reset effect from
+  // clobbering the "generating" status when selectedChatIdsByMode.miniapp
+  // changes mid-send.
+  const miniAppGenBusyRef = useRef(false);
+  // Cancel token for the currently-running harness run. Created at the
+  // start of each run, nulled out when the run completes. The Stop button
+  // in MiniAppChatView calls `.cancel()` on this token to unwind a stuck
+  // generation — the harness uses raceWithTimeout to honor it.
+  const miniAppCancelTokenRef = useRef<CancelToken | null>(null);
+  const miniAppVerifyRef = useRef<MiniAppVerificationTracker>(
+    new MiniAppVerificationTracker(),
+  );
+
+  // Dev-only trace buffer. Captures every TraceEvent emitted by the
+  // most recent harness run so the DevTracePanel can render a
+  // post-mortem timeline. State (not ref) so the panel re-renders
+  // when a new run starts. Production builds (__DEV__ === false)
+  // skip this entirely.
+  const [devTraceBuffer, setDevTraceBuffer] = useState<TraceEvent[]>([]);
+  // Dev-only attempt record buffer. Filled from HarnessResult.attemptRecords
+  // when a run finishes so the DevTracePanel's Attempts tab can show
+  // per-attempt diagnostics.
+  const [devAttemptRecords, setDevAttemptRecords] = useState<AttemptRecord[]>(
+    [],
+  );
+
+  // Load the mini-app index on mount so the home grid renders without a
+  // flash. Runs the schema migration first — that wipes any apps stored
+  // under the v1 raw-HTML format now that the runtime has switched to the
+  // component-based schema (v2). Idempotent.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const migration = await migrateMiniAppsIfNeeded();
+        if (migration.migrated && migration.removedCount > 0) {
+          console.log(
+            `[TensorChat] Mini-app migration removed ${migration.removedCount} legacy app(s).`,
+          );
+        }
+        const entries = await readMiniAppIndex();
+        if (!cancelled) setMiniAppIndex(entries);
+      } catch (err) {
+        console.warn("[TensorChat] Failed to load mini-app index:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Refresh helper used after writes / deletes.
+  const refreshMiniAppIndex = useCallback(async (): Promise<
+    MiniAppIndexEntry[]
+  > => {
+    try {
+      const entries = await readMiniAppIndex();
+      setMiniAppIndex(entries);
+      return entries;
+    } catch (err) {
+      console.warn("[TensorChat] Failed to refresh mini-app index:", err);
+      return [];
+    }
+  }, []);
+
   // Load persisted chats on mount
   useEffect(() => {
     async function loadChats() {
@@ -1870,7 +2008,7 @@ export function ChatScreen({
           setChats(startupState.chats);
           setSelectedChatIdsByMode(startupState.selectedChatIdsByMode);
           setActiveMode(startupState.activeMode);
-        } else if (rawActiveMode === "chat" || rawActiveMode === "translation") {
+        } else if (isChatMode(rawActiveMode)) {
           setActiveMode(rawActiveMode);
         }
       } catch (err) {
@@ -1910,9 +2048,18 @@ export function ChatScreen({
           )
             ? prev.translation
             : null,
+        miniapp:
+          prev.miniapp
+          && chats.some(
+            (chat) => chat.id === prev.miniapp && chat.mode === "miniapp",
+          )
+            ? prev.miniapp
+            : null,
       };
 
-      return next.chat === prev.chat && next.translation === prev.translation
+      return next.chat === prev.chat
+        && next.translation === prev.translation
+        && next.miniapp === prev.miniapp
         ? prev
         : next;
     });
@@ -1927,6 +2074,150 @@ export function ChatScreen({
       console.warn("[TensorChat] Failed to save active chat mode:", err),
     );
   }, [activeMode, chatsLoaded, incognitoChat]);
+
+  // When entering miniapp mode, default to showing the home grid. Clearing
+  // any active miniapp chat selection would be too invasive (users expect
+  // their last chat to come back when they return to chat mode), so we
+  // track "home visibility" as a separate bit.
+  useEffect(() => {
+    if (activeMode === "miniapp") {
+      setMiniAppHomeVisible(true);
+    }
+  }, [activeMode]);
+
+  // Clear generation status whenever the user leaves miniapp mode or
+  // returns to the home grid. Intentionally does NOT depend on
+  // `selectedChatIdsByMode.miniapp` — materializing a draft chat mid-send
+  // changes that id and would racily clobber the "generating" status set
+  // by runMiniAppGeneration. If a run is in flight, the busy ref also
+  // blocks the reset as a belt-and-suspenders layer.
+  useEffect(() => {
+    if (miniAppGenBusyRef.current) return;
+    setMiniAppGenStatus({ kind: "idle" });
+    // Also stop any in-flight verification for the prior chat.
+    miniAppVerifyRef.current.clear();
+  }, [activeMode, miniAppHomeVisible]);
+
+  // Runtime mode-switch model loader. The chat-slot model is shared across
+  // chat mode and miniapp mode, but miniapp mode wants Gemma 4 E2B loaded
+  // text-only (no mmproj) while chat mode may want any model with vision
+  // enabled. When the user flips between these modes, swap the loaded model
+  // if it doesn't match what the target mode prefers.
+  //
+  // For miniapp mode, if the user has no saved preference yet, we fall back
+  // to the E2B IQ2_M variant (the recommended miniapp default, 2.3 GB, no
+  // vision) via findPreferredLoadableMiniAppModelCandidate so the first-time
+  // UX is "tap Mini Apps → grid appears with model loading" rather than
+  // "silently nothing happens".
+  const chatSlotSwapBusyRef = useRef(false);
+  useEffect(() => {
+    if (!chatsLoaded) return;
+    if (activeMode === "translation") return; // translation has its own slot
+    if (chatSlotSwapBusyRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        let desiredModelPath: string | null = null;
+        let desiredMmprojPath: string | undefined;
+        let miniappModelSizeGB: number | undefined;
+
+        if (activeMode === "miniapp") {
+          const savedId = await AsyncStorage.getItem(
+            SELECTED_MINIAPP_MODEL_KEY,
+          );
+          if (cancelled) return;
+          const candidate = await findPreferredLoadableMiniAppModelCandidate(
+            savedId,
+            { isModelEligible: isModelAllowedByDeviceMemory },
+          );
+          if (cancelled) return;
+          if (!candidate) {
+            // No mini-app model downloaded — MiniAppHome shows the download CTA.
+            return;
+          }
+          desiredModelPath = candidate.modelPath;
+          miniappModelSizeGB = candidate.model.sizeGB;
+          // Pin the selection so next startup auto-loads the same model.
+          if (candidate.model.id !== savedId) {
+            await AsyncStorage.setItem(
+              SELECTED_MINIAPP_MODEL_KEY,
+              candidate.model.id,
+            );
+          }
+          // Miniapp mode never loads the mmproj sidecar.
+          desiredMmprojPath = undefined;
+        } else {
+          const savedId = await AsyncStorage.getItem(SELECTED_MODEL_KEY);
+          if (cancelled) return;
+          if (!savedId) return;
+          const desiredModel = ALL_MODELS.find((m) => m.id === savedId);
+          if (!desiredModel) return;
+          desiredModelPath = `${RNFS_MODELS_DIR}/${desiredModel.filename}`;
+          if (desiredModel.mmprojFilename) {
+            desiredMmprojPath = `${RNFS_MODELS_DIR}/${desiredModel.mmprojFilename}`;
+          }
+        }
+
+        if (!desiredModelPath) return;
+
+        // Skip if already loaded exactly as desired.
+        const sameModel =
+          llamaContextRef.current.loadedModelPath === desiredModelPath;
+        const sameMmproj =
+          (llamaContextRef.current.loadedMmprojPath ?? undefined) ===
+          desiredMmprojPath;
+        if (sameModel && sameMmproj) {
+          return;
+        }
+
+        chatSlotSwapBusyRef.current = true;
+        try {
+          // Cancel any in-flight generation before swapping.
+          try {
+            await llamaContextRef.current.stopGeneration();
+          } catch {}
+          // Mini Apps mode needs a larger context window than chat mode
+          // so the system prompt + tool grammar + output budget all fit.
+          // The context size is scaled dynamically based on device RAM
+          // and model size — 16k on devices with plenty of headroom,
+          // stepping down to 12k or 8k on RAM-constrained devices to
+          // avoid OOM kills. This uses the same 50%-of-RAM budget that
+          // the model eligibility check in modelMemory.ts enforces.
+          let loadOptions: { contextSize: number } | undefined;
+          if (activeMode === "miniapp") {
+            const deviceRam = getDeviceTotalMemoryBytes();
+            const ctxSize = getMiniAppContextSize(
+              miniappModelSizeGB,
+              deviceRam,
+            );
+            console.log(
+              "[TensorChat] mini-app context size:",
+              ctxSize,
+              "deviceRam:",
+              deviceRam,
+              "modelGB:",
+              miniappModelSizeGB,
+            );
+            loadOptions = { contextSize: ctxSize };
+          }
+          await llamaContextRef.current.loadModel(
+            desiredModelPath,
+            desiredMmprojPath,
+            loadOptions,
+          );
+        } finally {
+          chatSlotSwapBusyRef.current = false;
+        }
+      } catch (err) {
+        console.warn("[TensorChat] Mode-switch model swap failed:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMode, chatsLoaded]);
 
   // Persist the active saved chat id for the current mode whenever it changes.
   useEffect(() => {
@@ -3268,6 +3559,11 @@ export function ChatScreen({
     activateMode("chat");
   }, [activateMode]);
 
+  const openMiniAppMode = useCallback(() => {
+    activateMode("miniapp");
+    setMiniAppHomeVisible(true);
+  }, [activateMode]);
+
   const selectTranslationLanguage = useCallback(
     (language: TranslationLanguageCode | TranslationTargetLanguageCode) => {
       if (translationLanguagePicker === "source") {
@@ -3619,7 +3915,7 @@ export function ChatScreen({
     stopVoicePlayback();
     stopVoiceCapture();
     setChats([]);
-    setSelectedChatIdsByMode({ chat: null, translation: null });
+    setSelectedChatIdsByMode({ ...DEFAULT_MODE_CHAT_SELECTION });
     void AsyncStorage.multiRemove([CHATS_STORAGE_KEY, ACTIVE_CHAT_ID_KEY]);
   }, [stopVoicePlayback, stopVoiceCapture]);
 
@@ -4383,6 +4679,318 @@ export function ChatScreen({
     ],
   );
 
+  // Runs a single mini-app build/iteration turn via the mini-app harness.
+  //
+  // The harness (`src/miniapps/harness.ts`) owns all the retry / timeout /
+  // cooldown / cancellation / tracing / context-size logic. This callback
+  // is just the glue: create a cancel token, wire the harness's status
+  // events into `miniAppGenStatus`, handle the post-run `onWritten`
+  // side-effects, and release the busy mutex in a `finally` block so a
+  // stuck run can never deadlock the UI.
+  //
+  // CRITICAL: the `finally` is what fixes the old "stuck on retry" bug.
+  // Even if the harness throws or the llama context wedges, the mutex
+  // gets released and the reset effect can run.
+  const runMiniAppGeneration = useCallback(
+    async ({
+      chatId,
+      userText,
+      retryAttempt = 0,
+    }: {
+      chatId: string;
+      userText: string;
+      retryAttempt?: number;
+    }): Promise<void> => {
+      if (miniAppGenBusyRef.current) {
+        console.warn(
+          "[TensorChat] Mini-app generation already in flight; dropping new request.",
+        );
+        return;
+      }
+      miniAppGenBusyRef.current = true;
+      manualStopRequestedRef.current = false;
+
+      const cancelToken = createCancelToken();
+      miniAppCancelTokenRef.current = cancelToken;
+
+      // Reset the dev trace buffer at the start of each run so the
+      // panel always shows the LATEST run. Only the buffer itself is
+      // reset — production builds never create it in the first place
+      // (see the conditional render below).
+      if (__DEV__) {
+        setDevTraceBuffer([]);
+        setDevAttemptRecords([]);
+      }
+
+      // Derive the app's identity once from the user's prompt. The
+      // harness only uses this on the new-app creation path; on
+      // iteration runs the existing identity is preserved on disk and
+      // this value is harmlessly ignored. Computing it unconditionally
+      // keeps the call site simple and stateless.
+      const identity = deriveAppIdentity(userText);
+
+      try {
+        const result = await runMiniAppHarness({
+          chatId,
+          userText,
+          llama: llamaContextRef.current,
+          cancelToken,
+          retryAttempt,
+          identity,
+          onStatusChange: (status) => {
+            // Translate harness status into the existing UI state shape.
+            // The harness now emits fine-grained generating phases
+            // (preparing → thinking → drafting → tool-call → writing →
+            // verifying) — each carries its own label so the UI just
+            // passes it through.
+            if (status.kind === "idle") {
+              setMiniAppGenStatus({ kind: "idle" });
+              return;
+            }
+            if (status.kind === "cancelled") {
+              setMiniAppGenStatus({ kind: "idle" });
+              return;
+            }
+            if (status.kind === "error") {
+              setMiniAppGenStatus({
+                kind: "error",
+                message: status.message,
+              });
+              return;
+            }
+            if (status.kind === "planning") {
+              setMiniAppGenStatus({
+                kind: "planning",
+                label: status.label ?? "Planning…",
+              });
+              return;
+            }
+            if (status.kind === "generating") {
+              // Prefix with attempt indicator only on retries so the
+              // first attempt stays clean.
+              const attemptSuffix =
+                status.attempt > 1
+                  ? `  (${status.attempt}/${status.maxAttempts})`
+                  : "";
+              setMiniAppGenStatus({
+                kind: "generating",
+                label: `${status.label}${attemptSuffix}`,
+              });
+              return;
+            }
+            if (status.kind === "retrying") {
+              // Combine the humanized retry reason from the harness
+              // with the attempt counter so the user sees both WHY
+              // we're retrying AND how many attempts are left.
+              const reasonText = status.reason
+                ? `${status.reason}  (attempt ${status.attempt}/${status.maxAttempts})`
+                : `Retrying — attempt ${status.attempt} of ${status.maxAttempts}`;
+              setMiniAppGenStatus({
+                kind: "retrying",
+                label: reasonText,
+              });
+              return;
+            }
+            if (status.kind === "writing") {
+              setMiniAppGenStatus({
+                kind: "writing",
+                label: status.label ?? "Writing…",
+              });
+              return;
+            }
+          },
+          onTrace: (event) => {
+            // Keep a compact console log of each phase so the next stuck
+            // run can be diagnosed without a dev panel. The trace array
+            // itself is also captured in HarnessResult.trace for further
+            // inspection if needed.
+            if (
+              event.t === "start" ||
+              event.t === "promptBuilt" ||
+              event.t === "llamaStart" ||
+              event.t === "llamaEnd" ||
+              event.t === "timeout" ||
+              event.t === "retry" ||
+              event.t === "compact" ||
+              event.t === "done"
+            ) {
+              console.log("[miniapp-harness]", event.t, event);
+            }
+            // In dev builds, stash the event into the panel's buffer.
+            // This is the single source the DevTracePanel reads from.
+            if (__DEV__) {
+              setDevTraceBuffer((prev) => [...prev, event]);
+            }
+          },
+          onWritten: async (app) => {
+            try {
+              await refreshMiniAppIndex();
+            } catch (err) {
+              console.warn("[TensorChat] refreshMiniAppIndex failed:", err);
+            }
+            miniAppVerifyRef.current.startVerification({
+              chatId,
+              appId: app.id,
+              version: app.version,
+              attemptsUsed: retryAttempt,
+            });
+          },
+        });
+
+        // Stash the harness's structured attempt history so the dev
+        // trace panel's Attempts tab can show a post-mortem.
+        if (__DEV__) {
+          setDevAttemptRecords(result.attemptRecords);
+        }
+
+        if (result.kind === "error") {
+          console.warn(
+            "[TensorChat] Mini-app harness exhausted:",
+            result.errorClass,
+            result.errorMessage,
+          );
+        }
+      } catch (err) {
+        // Defensive — the harness is supposed to classify every error
+        // and return a structured result, but if something slips through
+        // we still need to surface it and release the mutex.
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[TensorChat] Mini-app harness threw:", err);
+        setMiniAppGenStatus({ kind: "error", message });
+      } finally {
+        manualStopRequestedRef.current = false;
+        miniAppCancelTokenRef.current = null;
+        miniAppGenBusyRef.current = false;
+      }
+    },
+    [refreshMiniAppIndex],
+  );
+
+  // Callback passed to MiniAppChatView / MiniAppFullscreen. Classifies
+  // runtime JS errors against the active verification window and, if
+  // inside, fires an auto-retry turn through the Agent to self-correct.
+  // The retry is invisible to the user — no chat transcript is created,
+  // only the gen-status strip updates to "Refining app…".
+  const handleMiniAppRuntimeError = useCallback(
+    (appId: string, version: number, error: MiniAppRuntimeError) => {
+      const activeChat = activeChatRef.current;
+      if (!activeChat || activeChat.mode !== "miniapp") return;
+
+      // If a generation is already running when a runtime error fires
+      // (rare — the WebView mounts AFTER the harness releases its mutex —
+      // but possible during mode-switch races), cancel the current run
+      // first. The harness's raceWithTimeout unwinds cleanly; the user
+      // will see the run drop to idle and can re-trigger on their own.
+      if (miniAppGenBusyRef.current) {
+        miniAppCancelTokenRef.current?.cancel();
+        return;
+      }
+
+      const classification = miniAppVerifyRef.current.classifyRuntimeError({
+        chatId: activeChat.id,
+        appId,
+        version,
+        error,
+      });
+
+      if (classification.action === "ignore") return;
+
+      if (classification.action === "give_up") {
+        setMiniAppGenStatus({
+          kind: "error",
+          message: `The app kept throwing errors after ${classification.attemptsUsed} attempts. Last error: ${error.message}`,
+        });
+        return;
+      }
+
+      // Retry path: feed the error back through the same agent pipeline.
+      // runMiniAppGeneration owns its own cancel token; this is a fresh
+      // user-scope retry (not a resumption of the previous run).
+      void runMiniAppGeneration({
+        chatId: activeChat.id,
+        userText: classification.message,
+        retryAttempt: classification.attemptsUsed,
+      });
+    },
+    [runMiniAppGeneration],
+  );
+
+  // Manual rename — called from MiniAppHome's long-press → "Rename" → modal
+  // submit. Persists the name + emoji patch to the app's meta.json without
+  // bumping the version, then refreshes the index so the home grid + chat
+  // app-meta row pick up the new identity on the next render.
+  const handleRenameMiniApp = useCallback(
+    async (
+      appId: string,
+      patch: { name: string; emoji: string },
+    ): Promise<void> => {
+      const updated = await renameMiniApp(appId, patch);
+      if (!updated) {
+        throw new Error("App not found or could not be renamed.");
+      }
+      await refreshMiniAppIndex();
+    },
+    [refreshMiniAppIndex],
+  );
+
+  // Undo handler — called from MiniAppChatView's undo button in the
+  // app-meta row. Shows a confirmation alert ("Undo last change?") so a
+  // misfire can't silently destroy the current version, then rolls back
+  // to the most recent snapshot in history/.
+  const handleMiniAppUndo = useCallback(
+    (chatId: string) => {
+      const entry = miniAppIndex.find((e) => e.chatId === chatId) ?? null;
+      if (!entry) return;
+      if ((entry.historyDepth ?? 0) <= 0) return;
+      if (miniAppGenBusyRef.current) return;
+
+      Alert.alert("Undo last change?", undefined, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Undo",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setMiniAppGenStatus({
+                kind: "writing",
+                label: "Rolling back…",
+              });
+              try {
+                const restored = await undoMiniApp(entry.id);
+                if (!restored) {
+                  setMiniAppGenStatus({
+                    kind: "error",
+                    message: "Couldn't restore previous version.",
+                  });
+                  setTimeout(() => {
+                    setMiniAppGenStatus((prev) =>
+                      prev.kind === "error" ? { kind: "idle" } : prev,
+                    );
+                  }, 2200);
+                  return;
+                }
+                await refreshMiniAppIndex();
+                setMiniAppGenStatus({ kind: "idle" });
+              } catch (err) {
+                console.warn("[TensorChat] undo failed:", err);
+                setMiniAppGenStatus({
+                  kind: "error",
+                  message: "Couldn't restore previous version.",
+                });
+                setTimeout(() => {
+                  setMiniAppGenStatus((prev) =>
+                    prev.kind === "error" ? { kind: "idle" } : prev,
+                  );
+                }, 2200);
+              }
+            })();
+          },
+        },
+      ]);
+    },
+    [miniAppIndex, refreshMiniAppIndex],
+  );
+
   const sendMessage = useCallback(async () => {
     const text = inputText.trim();
     const currentActiveMode = activeChatModeRef.current;
@@ -4395,13 +5003,32 @@ export function ChatScreen({
     const currentDraftSourceIds = draftSourceIdsRef.current;
     const currentSources = sourcesRef.current;
     const imageUri = currentIsTranslationMode ? null : pendingImageUri;
-    if (
-      (!text && !imageUri) ||
-      isGenerating ||
-      !activeLoadedModelPathRef.current ||
-      isCompressingImage
-    )
+    if ((!text && !imageUri) || isGenerating || isCompressingImage) return;
+
+    // In miniapp mode, explicitly surface "no model" to the user instead of
+    // silently dropping the send. The fallback loader will have tried to
+    // pick a Gemma E2B variant already — if nothing is loaded, the user
+    // either needs to download one or wait for loading to finish.
+    if (!activeLoadedModelPathRef.current) {
+      if (currentActiveMode === "miniapp") {
+        if (isModelLoading) {
+          Alert.alert(
+            "Model loading",
+            "Gemma 4 E2B is still loading. Try again in a moment.",
+          );
+        } else {
+          Alert.alert(
+            "Download a model first",
+            "Mini Apps work best with Qwen 3.5 4B (recommended, 2.7 GB) or Gemma 4 E2B. Open the model catalog to download one.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open Catalog", onPress: () => openModelCatalog("4B") },
+            ],
+          );
+        }
+      }
       return;
+    }
 
     inputRef.current?.blur();
     Keyboard.dismiss();
@@ -4458,6 +5085,12 @@ export function ChatScreen({
       translationBadge: translationMessageBadges?.assistantBadge,
     };
 
+    // Mini Apps mode is artifact-first: we persist the user prompt (for
+    // the sidebar title + chat history list) but NOT an assistant message.
+    // Generation status lives in miniAppGenStatus instead of a streaming
+    // bubble, and the app itself is the "reply".
+    const isMiniAppSend = currentActiveMode === "miniapp";
+
     const appendMessages = (chat: Chat): Chat => ({
       ...chat,
       lastTranslationPair:
@@ -4471,7 +5104,9 @@ export function ChatScreen({
         chat.messages.length === 0 && !chat.titleEdited
           ? (text || "Image").slice(0, 40)
           : chat.title,
-      messages: [...chat.messages, userMsg, assistantMsg],
+      messages: isMiniAppSend
+        ? [...chat.messages, userMsg]
+        : [...chat.messages, userMsg, assistantMsg],
     });
 
     const currentSelectedChatId =
@@ -4484,6 +5119,16 @@ export function ChatScreen({
     }
 
     scheduleScrollToEnd(false);
+
+    if (isMiniAppSend) {
+      // Any new user turn supersedes a pending verification window.
+      miniAppVerifyRef.current.reset(chatId);
+      await runMiniAppGeneration({
+        chatId,
+        userText: text,
+      });
+      return;
+    }
 
     if (currentIsTranslationMode) {
       await runTranslationGeneration({
@@ -4519,6 +5164,7 @@ export function ChatScreen({
     stopVoiceCapture,
     stopVoicePlayback,
     runAssistantGeneration,
+    runMiniAppGeneration,
     runTranslationGeneration,
     updateSessionById,
   ]);
@@ -4656,12 +5302,49 @@ export function ChatScreen({
     updateSessionById,
   ]);
 
+  const isMiniAppMode = activeChatMode === "miniapp";
+
+  // Which Gemma E2B model (if any) is currently loaded in the chat slot —
+  // used to compute the MiniAppHome status banner and to gate send in
+  // miniapp mode. Miniapp mode is tuned for Gemma 4 E2B IQ2_M specifically,
+  // but any E2B variant on disk counts as "ready" since the agent runtime
+  // is model-agnostic.
+  const loadedMiniAppModel = useMemo(() => {
+    if (!loadedModelPath) return null;
+    return (
+      MINIAPP_MODELS.find((m) => loadedModelPath.endsWith(m.filename)) ?? null
+    );
+  }, [loadedModelPath]);
+
+  const miniAppModelStatus = useMemo<
+    | { kind: "ready"; modelName: string }
+    | { kind: "loading" }
+    | { kind: "missing" }
+  >(() => {
+    if (isModelLoading) return { kind: "loading" as const };
+    if (loadedMiniAppModel) {
+      return { kind: "ready" as const, modelName: loadedMiniAppModel.name };
+    }
+    return { kind: "missing" as const };
+  }, [isModelLoading, loadedMiniAppModel]);
+
+  const closeMiniAppFullscreen = useCallback(() => {
+    setMiniAppFullscreenId(null);
+  }, []);
+
+  const openMiniAppCatalog = useCallback(() => {
+    // Open to the 4B tab (Qwen 3.5 — best mini-app performer).
+    // The catalog shows all families; the user can pick any model
+    // from the supported set.
+    openModelCatalog("4B");
+  }, [openModelCatalog]);
+
   const renderItem = useCallback(
     ({ item }: { item: Message }) => (
       <MessageBubble
         message={item}
         onSpeak={
-          item.role === "assistant" && !isTranslationMode
+          item.role === "assistant" && !isTranslationMode && !isMiniAppMode
             ? handleSpeakMessage
             : undefined
         }
@@ -4683,6 +5366,7 @@ export function ChatScreen({
     [
       handleSpeakMessage,
       isTranslationMode,
+      isMiniAppMode,
       activeLoadedModelPath,
       isGenerating,
       speakingMessageId,
@@ -4901,6 +5585,53 @@ export function ChatScreen({
         </View>
       </Modal>
 
+      {/* Mini App Fullscreen Modal */}
+      <Modal
+        visible={miniAppFullscreenId !== null}
+        animationType="slide"
+        transparent
+        presentationStyle="overFullScreen"
+        onRequestClose={closeMiniAppFullscreen}
+      >
+        <View style={styles.modalScreen}>
+          <SafeAreaProvider>
+            {miniAppFullscreenId !== null && (
+              <MiniAppFullscreen
+                appId={miniAppFullscreenId}
+                onClose={closeMiniAppFullscreen}
+                onDelete={async (appId) => {
+                  const entry = miniAppIndex.find((e) => e.id === appId);
+                  await deleteMiniApp(appId);
+                  if (entry) {
+                    await deleteMiniAppMemory(entry.chatId);
+                  }
+                  await refreshMiniAppIndex();
+                  if (entry) {
+                    setChats((prev) =>
+                      prev.filter((c) => c.id !== entry.chatId),
+                    );
+                    setSelectedChatIdsByMode((prev) =>
+                      prev.miniapp === entry.chatId
+                        ? { ...prev, miniapp: null }
+                        : prev,
+                    );
+                  }
+                }}
+                onOpenChat={(chatId) => {
+                  setSelectedChatIdsByMode((prev) => ({
+                    ...prev,
+                    miniapp: chatId,
+                  }));
+                  setActiveMode("miniapp");
+                  setMiniAppHomeVisible(false);
+                }}
+                onRuntimeError={handleMiniAppRuntimeError}
+              />
+            )}
+          </SafeAreaProvider>
+        </View>
+      </Modal>
+
       {/* Model Catalog Modal */}
       <Modal
         visible={modelCatalogVisible}
@@ -4937,6 +5668,7 @@ export function ChatScreen({
           onOpenTensorChat={openChatMode}
           onOpenFileVault={openFileVault}
           onOpenTranslation={openTranslationMode}
+          onOpenMiniApps={openMiniAppMode}
           onOpenModelCatalog={openDefaultModelCatalog}
           onManageModels={openManageModels}
           onDeleteAllChats={deleteAllChats}
@@ -4966,7 +5698,101 @@ export function ChatScreen({
                 </View>
               ) : null}
 
-              {messages.length === 0 ? (
+              {isMiniAppMode && !miniAppHomeVisible ? (
+                <MiniAppChatView
+                  topInset={insets.top}
+                  entry={
+                    miniAppIndex.find(
+                      (e) => e.chatId === activeChat.id,
+                    ) ?? null
+                  }
+                  status={miniAppGenStatus}
+                  onOpenFullscreen={(appId) =>
+                    setMiniAppFullscreenId(appId)
+                  }
+                  onRuntimeError={handleMiniAppRuntimeError}
+                  onRetry={() =>
+                    setMiniAppGenStatus({ kind: "idle" })
+                  }
+                  onCancel={() => {
+                    // Unwind the in-flight harness run. The harness's
+                    // raceWithTimeout picks this up and resolves the
+                    // single-attempt promise with a `cancelled` outcome,
+                    // the finally block in runMiniAppGeneration releases
+                    // the mutex, and the UI drops back to idle.
+                    miniAppCancelTokenRef.current?.cancel();
+                  }}
+                  onUndo={() => handleMiniAppUndo(activeChat.id)}
+                  devOverlay={
+                    __DEV__ ? (
+                      <DevTracePanel
+                        trace={devTraceBuffer}
+                        attempts={devAttemptRecords}
+                        program={
+                          miniAppIndex.find(
+                            (e) => e.chatId === activeChat.id,
+                          )
+                            ? null // Program bytes aren't in the index;
+                            : // leave as null until we also cache the
+                              // full program on the run result. Trace
+                              // tab is the primary surface for now.
+                              null
+                        }
+                      />
+                    ) : null
+                  }
+                />
+              ) : isMiniAppMode && miniAppHomeVisible ? (
+                <MiniAppHome
+                  entries={miniAppIndex}
+                  topInset={insets.top}
+                  modelStatus={miniAppModelStatus}
+                  onDownloadModel={openMiniAppCatalog}
+                  onRenameApp={handleRenameMiniApp}
+                  onOpenChat={(chatId) => {
+                    setSelectedChatIdsByMode((prev) => ({
+                      ...prev,
+                      miniapp: chatId,
+                    }));
+                    setMiniAppHomeVisible(false);
+                  }}
+                  onOpenFullscreen={(appId) => setMiniAppFullscreenId(appId)}
+                  onDeleteApp={async (appId, alsoChat) => {
+                    const entry = miniAppIndex.find((e) => e.id === appId);
+                    await deleteMiniApp(appId);
+                    if (alsoChat && entry) {
+                      await deleteMiniAppMemory(entry.chatId);
+                    }
+                    await refreshMiniAppIndex();
+                    if (alsoChat && entry) {
+                      setChats((prev) =>
+                        prev.filter((c) => c.id !== entry.chatId),
+                      );
+                      setSelectedChatIdsByMode((prev) =>
+                        prev.miniapp === entry.chatId
+                          ? { ...prev, miniapp: null }
+                          : prev,
+                      );
+                    }
+                  }}
+                  onNewChat={() => {
+                    if (miniAppModelStatus.kind !== "ready") {
+                      // Banner already tells the user what to do; guard
+                      // against stale taps on the button.
+                      return;
+                    }
+                    setModeDrafts((prev) => ({
+                      ...prev,
+                      miniapp: makeNewChat("miniapp"),
+                    }));
+                    setSelectedChatIdsByMode((prev) => ({
+                      ...prev,
+                      miniapp: null,
+                    }));
+                    setMiniAppHomeVisible(false);
+                  }}
+                />
+              ) : messages.length === 0 ? (
                 <ChatEmptyState
                   topInset={insets.top}
                   mode={activeChatMode}
@@ -5067,6 +5893,7 @@ export function ChatScreen({
               />
             )}
 
+            {isMiniAppMode && miniAppHomeVisible ? null : (
             <ChatInput
               inputRef={inputRef}
               mode={activeChatMode}
@@ -5129,6 +5956,7 @@ export function ChatScreen({
               onDisableVoiceMode={disableVoiceMode}
               bottomInset={insets.bottom}
             />
+            )}
           </KeyboardAvoidingView>
 
           <ChatHeader
@@ -5144,6 +5972,14 @@ export function ChatScreen({
             onModelPillPress={handleShowModelPicker}
             onStartIncognitoChat={startIncognitoChat}
             onNewChat={newChat}
+            hideRightActions={isMiniAppMode}
+            // Home button only appears when we're actually inside a
+            // miniapp chat — no point showing it while already on the grid.
+            onHomePress={
+              isMiniAppMode && !miniAppHomeVisible
+                ? () => setMiniAppHomeVisible(true)
+                : undefined
+            }
           />
 
           {sidebarOpen ? (
