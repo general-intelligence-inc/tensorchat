@@ -96,3 +96,52 @@ export function getDeviceMemorySummary(
 
   return `This device has ${formatMemoryBytes(totalMemoryBytes)} RAM. Limit: ${formatMemoryBytes(limitBytes)}.`;
 }
+
+/**
+ * Compute optimal `initLlama` parameters based on model size and platform.
+ *
+ * - KV cache quantization (q8_0) halves cache memory vs f16 for models >= 1.5 GB.
+ * - Flash attention reduces peak memory during attention computation.
+ * - GPU offloading on iOS shifts work to Metal, freeing CPU RAM.
+ * - Memory mapping avoids contiguous allocation spikes during loading.
+ */
+export function buildOptimizedInitParams(opts: {
+  modelSizeGB: number;
+  platform: string;
+}): {
+  cache_type_k?: string;
+  cache_type_v?: string;
+  flash_attn_type?: string;
+  n_gpu_layers?: number;
+  use_mmap?: boolean;
+} {
+  const params: {
+    cache_type_k?: string;
+    cache_type_v?: string;
+    flash_attn_type?: string;
+    n_gpu_layers?: number;
+    use_mmap?: boolean;
+  } = {};
+
+  // KV cache quantization: q8_0 for models >= 1.5 GB saves ~50% cache RAM
+  // with minimal quality loss. Smaller models keep f16 for best quality.
+  if (opts.modelSizeGB >= 1.5) {
+    params.cache_type_k = "q8_0";
+    params.cache_type_v = "q8_0";
+  }
+
+  // Flash attention: let llama.cpp auto-detect support per architecture.
+  params.flash_attn_type = "auto";
+
+  // iOS Metal GPU offload: offload all possible layers to reduce CPU RAM.
+  // Android GPU support is less reliable, so we omit it there.
+  if (opts.platform === "ios") {
+    params.n_gpu_layers = 99999;
+  }
+
+  // Memory mapping reduces peak RAM during model loading by lazily
+  // paging model data instead of requiring contiguous allocation.
+  params.use_mmap = true;
+
+  return params;
+}

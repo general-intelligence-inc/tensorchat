@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
+import { Platform } from "react-native";
 import { DEFAULT_THINKING_BUDGET, type ThinkingBudget } from "../constants/models";
 import {
   combineReasoningAndResponse,
@@ -6,6 +7,7 @@ import {
   stripThinkingTags,
 } from "../utils/reasoning";
 import { optionalRequire } from "../utils/optionalRequire";
+import { buildOptimizedInitParams } from "../utils/modelMemory";
 
 // Gracefully handle environments where llama.rn is not fully available
 let initLlama:
@@ -13,6 +15,11 @@ let initLlama:
       model: string;
       n_ctx?: number;
       n_threads?: number;
+      n_gpu_layers?: number;
+      use_mmap?: boolean;
+      flash_attn_type?: string;
+      cache_type_k?: string;
+      cache_type_v?: string;
     }) => Promise<LlamaContext>)
   | null = null;
 let releaseAllLlama: (() => Promise<void>) | null = null;
@@ -212,6 +219,11 @@ export interface LlamaLoadOptions {
    * injects the current app code plus grammar-constrained tool output.
    */
   contextSize?: number;
+  /**
+   * Model file size in GB (from ModelConfig.sizeGB). Used to select
+   * optimal initLlama parameters (KV cache quantization, GPU layers, etc.).
+   */
+  modelSizeGB?: number;
 }
 
 export interface LlamaPromptTokenCountOptions {
@@ -625,11 +637,16 @@ export function useLlama(): UseLlamaReturn {
         // (e.g. Mini Apps mode passes 16384 so the system prompt injection +
         // tool-grammar overhead + app-code output all fit comfortably).
         const contextSize = options?.contextSize ?? 8192;
+        const optimized = buildOptimizedInitParams({
+          modelSizeGB: options?.modelSizeGB ?? 2,
+          platform: Platform.OS,
+        });
         const ctx = await initLlama({
           model: modelPath,
           n_ctx: contextSize,
           n_threads: 4,
-        } as Parameters<typeof initLlama>[0]);
+          ...optimized,
+        });
 
         contextRef.current = ctx;
         setLoadedModelPath(modelPath);
@@ -716,6 +733,15 @@ export function useLlama(): UseLlamaReturn {
 
     setIsTranslationLoading(true);
     setTranslationError(null);
+    contextBusyRef.current = true;
+
+    // Stop any in-flight chat generation before releasing the context.
+    try {
+      if (contextRef.current) {
+        isStoppedRef.current = true;
+        await contextRef.current.stopCompletion();
+      }
+    } catch {}
 
     try {
       // Chat and translation runtimes are mutually exclusive.
@@ -738,11 +764,16 @@ export function useLlama(): UseLlamaReturn {
       setLoadedTranslationModelPath(null);
 
       const contextSize = 4096;
+      const optimized = buildOptimizedInitParams({
+        modelSizeGB: 1.5,
+        platform: Platform.OS,
+      });
       const ctx = await initLlama({
         model: modelPath,
         n_ctx: contextSize,
         n_threads: 4,
-      } as Parameters<typeof initLlama>[0]);
+        ...optimized,
+      });
 
       translationContextRef.current = ctx;
       setLoadedTranslationModelPath(modelPath);
@@ -755,6 +786,7 @@ export function useLlama(): UseLlamaReturn {
       return false;
     } finally {
       setIsTranslationLoading(false);
+      contextBusyRef.current = false;
     }
   }, [releaseContext]);
 
@@ -1421,26 +1453,50 @@ export function useLlama(): UseLlamaReturn {
     [],
   );
 
-  return {
-    isLoading: isLoading || isTranslationLoading,
-    isGenerating: isGenerating || isTranslationGenerating,
-    loadedModelPath,
-    loadedContextSize,
-    multimodalEnabled,
-    loadedMmprojPath,
-    error: error ?? translationError,
-    isTranslationLoading,
-    isTranslationGenerating,
-    loadedTranslationModelPath,
-    translationError,
-    loadModel,
-    unloadModel,
-    loadTranslationModel,
-    unloadTranslationModel,
-    generateResponse,
-    generateTranslation,
-    countPromptTokens,
-    stopGeneration,
-    stopTranslationGeneration,
-  };
+  return useMemo(
+    () => ({
+      isLoading: isLoading || isTranslationLoading,
+      isGenerating: isGenerating || isTranslationGenerating,
+      loadedModelPath,
+      loadedContextSize,
+      multimodalEnabled,
+      loadedMmprojPath,
+      error: error ?? translationError,
+      isTranslationLoading,
+      isTranslationGenerating,
+      loadedTranslationModelPath,
+      translationError,
+      loadModel,
+      unloadModel,
+      loadTranslationModel,
+      unloadTranslationModel,
+      generateResponse,
+      generateTranslation,
+      countPromptTokens,
+      stopGeneration,
+      stopTranslationGeneration,
+    }),
+    [
+      isLoading,
+      isTranslationLoading,
+      isGenerating,
+      isTranslationGenerating,
+      loadedModelPath,
+      loadedContextSize,
+      multimodalEnabled,
+      loadedMmprojPath,
+      error,
+      translationError,
+      loadedTranslationModelPath,
+      loadModel,
+      unloadModel,
+      loadTranslationModel,
+      unloadTranslationModel,
+      generateResponse,
+      generateTranslation,
+      countPromptTokens,
+      stopGeneration,
+      stopTranslationGeneration,
+    ],
+  );
 }

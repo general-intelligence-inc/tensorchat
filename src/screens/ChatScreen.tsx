@@ -2120,7 +2120,7 @@ export function ChatScreen({
       try {
         let desiredModelPath: string | null = null;
         let desiredMmprojPath: string | undefined;
-        let miniappModelSizeGB: number | undefined;
+        let desiredModelSizeGB: number | undefined;
 
         if (activeMode === "miniapp") {
           const savedId = await AsyncStorage.getItem(
@@ -2137,7 +2137,7 @@ export function ChatScreen({
             return;
           }
           desiredModelPath = candidate.modelPath;
-          miniappModelSizeGB = candidate.model.sizeGB;
+          desiredModelSizeGB = candidate.model.sizeGB;
           // Pin the selection so next startup auto-loads the same model.
           if (candidate.model.id !== savedId) {
             await AsyncStorage.setItem(
@@ -2154,6 +2154,7 @@ export function ChatScreen({
           const desiredModel = ALL_MODELS.find((m) => m.id === savedId);
           if (!desiredModel) return;
           desiredModelPath = `${RNFS_MODELS_DIR}/${desiredModel.filename}`;
+          desiredModelSizeGB = desiredModel.sizeGB;
           if (desiredModel.mmprojFilename) {
             desiredMmprojPath = `${RNFS_MODELS_DIR}/${desiredModel.mmprojFilename}`;
           }
@@ -2184,11 +2185,11 @@ export function ChatScreen({
           // stepping down to 12k or 8k on RAM-constrained devices to
           // avoid OOM kills. This uses the same 50%-of-RAM budget that
           // the model eligibility check in modelMemory.ts enforces.
-          let loadOptions: { contextSize: number } | undefined;
+          let loadOptions: { contextSize?: number; modelSizeGB?: number } | undefined;
           if (activeMode === "miniapp") {
             const deviceRam = getDeviceTotalMemoryBytes();
             const ctxSize = getMiniAppContextSize(
-              miniappModelSizeGB,
+              desiredModelSizeGB,
               deviceRam,
             );
             console.log(
@@ -2197,9 +2198,11 @@ export function ChatScreen({
               "deviceRam:",
               deviceRam,
               "modelGB:",
-              miniappModelSizeGB,
+              desiredModelSizeGB,
             );
-            loadOptions = { contextSize: ctxSize };
+            loadOptions = { contextSize: ctxSize, modelSizeGB: desiredModelSizeGB };
+          } else if (desiredModelSizeGB != null) {
+            loadOptions = { modelSizeGB: desiredModelSizeGB };
           }
           await llamaContextRef.current.loadModel(
             desiredModelPath,
@@ -2456,7 +2459,9 @@ export function ChatScreen({
         if (cancelled) {
           return;
         }
-        await loadModel(candidate.modelPath, candidate.mmprojPath);
+        await loadModel(candidate.modelPath, candidate.mmprojPath, {
+          modelSizeGB: candidate.model.sizeGB,
+        });
       } catch (err) {
         console.warn("[ChatScreen] Failed to auto-load downloaded model:", err);
       } finally {
