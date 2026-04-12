@@ -1830,6 +1830,8 @@ function buildRetrievedContextBlock(results: RagQueryResult[]): string | null {
   return joinRetrievedContextSections(buildRetrievedContextSections(results));
 }
 
+const EMPTY_SOURCES: RagSource[] = [];
+
 export function ChatScreen({
   appReady,
   startupAutoloadPending,
@@ -2237,6 +2239,8 @@ export function ChatScreen({
     );
   }, [activeMode, chatsLoaded, incognitoChat, selectedChatIdsByMode]);
   const [inputText, setInputText] = useState("");
+  const inputTextRef = useRef(inputText);
+  inputTextRef.current = inputText;
   const inputRef = useRef<TextInput>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [renameChatId, setRenameChatId] = useState<string | null>(null);
@@ -2784,13 +2788,13 @@ export function ChatScreen({
 
   const handleStopGeneration = useCallback(async () => {
     manualStopRequestedRef.current = true;
-    if (isTranslationMode) {
+    if (isTranslationModeRef.current) {
       await stopTranslationGeneration();
       return;
     }
 
     await stopLlamaGeneration();
-  }, [isTranslationMode, stopLlamaGeneration, stopTranslationGeneration]);
+  }, [stopLlamaGeneration, stopTranslationGeneration]);
 
   const scheduleScrollToEnd = useCallback((animated: boolean) => {
     if (pendingScrollFrameRef.current !== null) {
@@ -4997,7 +5001,7 @@ export function ChatScreen({
   );
 
   const sendMessage = useCallback(async () => {
-    const text = inputText.trim();
+    const text = inputTextRef.current.trim();
     const currentActiveMode = activeChatModeRef.current;
     const currentActiveChat = activeChatRef.current;
     const currentIsTranslationMode = isTranslationModeRef.current;
@@ -5156,7 +5160,6 @@ export function ChatScreen({
       thinkingBudget,
     });
   }, [
-    inputText,
     pendingImageUri,
     pendingImageDisplayUri,
     isGenerating,
@@ -5387,6 +5390,42 @@ export function ChatScreen({
 
   const keyExtractor = useCallback((item: Message) => item.id, []);
 
+  const handleFlatListScroll = useCallback(
+    ({ nativeEvent }: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
+      const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+      contentHeightRef.current = contentSize.height;
+      layoutHeightRef.current = layoutMeasurement.height;
+      const distanceFromBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      const atBottom = distanceFromBottom < 120;
+      isAtBottomRef.current = atBottom;
+      setIsAtBottom(atBottom);
+    },
+    [],
+  );
+
+  const handleContentSizeChange = useCallback(
+    (_w: number, h: number) => {
+      contentHeightRef.current = h;
+      const lastMsg = messagesRef.current[messagesRef.current.length - 1];
+      const shouldAutoScroll =
+        !lastMsg?.isStreaming
+        && (lastMsg?.content === "" || isAtBottomRef.current);
+      if (shouldAutoScroll) {
+        scheduleScrollToEnd(false);
+      }
+    },
+    [scheduleScrollToEnd],
+  );
+
+  const flatListContentContainerStyle = useMemo(
+    () => [
+      styles.messageList,
+      { paddingTop: insets.top + 56, paddingBottom: SPACING.md },
+    ],
+    [insets.top],
+  );
+
   const chatSummaries: ChatSummary[] = chats
     .filter((chat) => chat.mode === activeChatMode)
     .map((chat) => ({
@@ -5407,8 +5446,8 @@ export function ChatScreen({
     openModelCatalog("downloaded");
   }, [openModelCatalog]);
   const openCurrentModeModelCatalog = useCallback(() => {
-    openModelCatalog(isTranslationMode ? "translation" : "0.8B");
-  }, [isTranslationMode, openModelCatalog]);
+    openModelCatalog(isTranslationModeRef.current ? "translation" : "0.8B");
+  }, [openModelCatalog]);
   const handleShowModelPicker = useCallback(() => {
     setModelPickerVisible(true);
   }, []);
@@ -5812,40 +5851,12 @@ export function ChatScreen({
                   renderItem={renderItem}
                   keyExtractor={keyExtractor}
                   style={styles.flatList}
-                  contentContainerStyle={[
-                    styles.messageList,
-                    {
-                      paddingTop: insets.top + 56,
-                      paddingBottom: SPACING.md,
-                    },
-                  ]}
+                  contentContainerStyle={flatListContentContainerStyle}
                   keyboardDismissMode="interactive"
                   keyboardShouldPersistTaps="handled"
                   scrollEventThrottle={16}
-                  onScroll={({ nativeEvent }) => {
-                    const { contentOffset, contentSize, layoutMeasurement } =
-                      nativeEvent;
-                    contentHeightRef.current = contentSize.height;
-                    layoutHeightRef.current = layoutMeasurement.height;
-                    const distanceFromBottom =
-                      contentSize.height -
-                      (contentOffset.y + layoutMeasurement.height);
-                    const atBottom = distanceFromBottom < 120;
-                    isAtBottomRef.current = atBottom;
-                    setIsAtBottom(atBottom);
-                  }}
-                  onContentSizeChange={(_w, h) => {
-                    contentHeightRef.current = h;
-                    const lastMsg = messages[messages.length - 1];
-                    // Keep following layout growth while user is at bottom.
-                    // This catches post-stream additions like the copy button.
-                    const shouldAutoScroll =
-                      !lastMsg?.isStreaming
-                      && (lastMsg?.content === "" || isAtBottomRef.current);
-                    if (shouldAutoScroll) {
-                      scheduleScrollToEnd(false);
-                    }
-                  }}
+                  onScroll={handleFlatListScroll}
+                  onContentSizeChange={handleContentSizeChange}
                 />
               )}
 
@@ -5943,7 +5954,7 @@ export function ChatScreen({
               onPressTranslationSource={handlePressTranslationSource}
               onPressTranslationTarget={handlePressTranslationTarget}
               onSwapTranslationLanguages={swapTranslationLanguages}
-              attachedSources={isTranslationMode ? [] : attachedSources}
+              attachedSources={isTranslationMode ? EMPTY_SOURCES : attachedSources}
               onRemoveSource={handleRemoveAttachedSource}
               sourceStatusText={
                 !isTranslationMode && isEmbeddingModelEnabled
