@@ -49,6 +49,8 @@ export interface AgentGenerateOptions {
   thinkingBudget?: number;
   alwaysThinks?: boolean;
   nativeReasoning?: boolean;
+  /** Override the per-call output token cap (`n_predict`). */
+  maxGenerationTokens?: number;
   onEvent: (event: AgentEvent) => void;
 }
 
@@ -72,6 +74,7 @@ export async function agentGenerate(
     thinkingBudget,
     alwaysThinks,
     nativeReasoning,
+    maxGenerationTokens,
     onEvent,
   } = options;
 
@@ -114,6 +117,11 @@ export async function agentGenerate(
     // For non-alwaysThinks models, pass tools through to llama.rn for
     // grammar-based structured tool calling.
     ...(hasTools && !alwaysThinks ? { tools: toLlamaToolDefinitions(tools) } : {}),
+    // Explicit override for the per-call output cap. Overrides the budget
+    // derived from thinking state inside useLlama.generateResponse.
+    ...(typeof maxGenerationTokens === "number"
+      ? { maxGenerationTokens }
+      : {}),
   };
 
   let lastThinking = "";

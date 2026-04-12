@@ -243,7 +243,13 @@ export class Agent {
       // to the UI. If the model doesn't call tools, we'll do a direct search
       // fallback and the user should only see the synthesis — not the model's
       // initial (likely unhelpful) response from parametric knowledge.
-      const suppressStreaming = i === 0 && this.tools.size > 0;
+      // Callers that actively USE first-iteration streaming events (e.g. the
+      // mini-app harness's phased progress indicator) can opt out via
+      // `streamFirstIteration`.
+      const suppressStreaming =
+        i === 0 &&
+        this.tools.size > 0 &&
+        !this.config.streamFirstIteration;
       const iterationOnEvent = suppressStreaming
         ? (event: AgentEvent) => {
             // Only forward non-content events (iteration markers, errors).
@@ -264,6 +270,7 @@ export class Agent {
           thinkingBudget: this.config.thinkingBudget,
           alwaysThinks: this.config.alwaysThinks,
           nativeReasoning: this.config.nativeReasoning,
+          maxGenerationTokens: this.config.maxGenerationTokens,
           onEvent: iterationOnEvent,
         });
       } catch (genError) {
@@ -285,6 +292,7 @@ export class Agent {
             thinkingBudget: this.config.thinkingBudget,
             alwaysThinks: this.config.alwaysThinks,
             nativeReasoning: this.config.nativeReasoning,
+            maxGenerationTokens: this.config.maxGenerationTokens,
             onEvent: this.emitEvent,
           });
           finalText = fallbackResult.text;
@@ -304,7 +312,16 @@ export class Agent {
         // available — the model may be too small to reliably generate tool
         // calls. Fall back to direct search: execute the first registered tool
         // with the user's message as the query, then re-generate with results.
-        if (i === 0 && this.tools.size > 0) {
+        //
+        // Artifact flows (mini-apps) disable this: the fallback makes no sense
+        // when the tool's purpose is to emit code (the `query` arg doesn't
+        // exist), and the back-to-back completion races llama.rn's context
+        // cleanup — the exact cause of "Context is busy" cascades.
+        if (
+          i === 0 &&
+          this.tools.size > 0 &&
+          !this.config.disableDirectSearchFallback
+        ) {
           const firstTool = this.tools.values().next().value;
           if (firstTool) {
             const directCallId = generateId();
@@ -360,6 +377,7 @@ export class Agent {
                 thinkingBudget: this.config.thinkingBudget,
                 alwaysThinks: this.config.alwaysThinks,
                 nativeReasoning: this.config.nativeReasoning,
+                maxGenerationTokens: this.config.maxGenerationTokens,
                 onEvent: this.emitEvent,
               });
 
@@ -514,8 +532,15 @@ export class Agent {
       this.emitEvent({ type: "iterationEnd", iteration: i, hasMoreToolCalls: true });
 
       // If this was the last iteration and we still have tool calls,
-      // do one final generation without tools to force a text answer.
-      if (i === maxIterations - 1 && !this.stopped) {
+      // do one final generation without tools to force a text answer —
+      // unless the caller opted out (e.g. artifact-first flows that
+      // don't want a trailing assistant text and would race the llama
+      // context on back-to-back completions).
+      if (
+        i === maxIterations - 1
+        && !this.stopped
+        && !this.config.skipFinalForceText
+      ) {
         try {
           const condensedForForce = condenseHistory(this.history);
           const forceResult = await agentGenerate(this.llama, condensedForForce, {
@@ -524,6 +549,7 @@ export class Agent {
             thinkingBudget: this.config.thinkingBudget,
             alwaysThinks: this.config.alwaysThinks,
             nativeReasoning: this.config.nativeReasoning,
+            maxGenerationTokens: this.config.maxGenerationTokens,
             onEvent: this.emitEvent,
           });
 
@@ -543,6 +569,7 @@ export class Agent {
               thinkingBudget: this.config.thinkingBudget,
               alwaysThinks: this.config.alwaysThinks,
               nativeReasoning: this.config.nativeReasoning,
+              maxGenerationTokens: this.config.maxGenerationTokens,
               onEvent: this.emitEvent,
             });
             finalText = fallbackResult.text;
@@ -665,11 +692,14 @@ export class Agent {
 
     const parts = [base];
 
-    // Current datetime so the model knows "today".
-    parts.push(`Current date and time: ${formatPromptDateTime(new Date())}`);
-
-    if (this.tools.size > 0) {
-      parts.push(AGENT_TOOL_GUIDANCE);
+    // Artifact flows (mini-apps) ship their own tight system prompt and
+    // explicitly want to strip chat-mode boilerplate. Chat mode keeps
+    // the datetime + tool-guidance suffixes.
+    if (!this.config.suppressChatModePromptSuffixes) {
+      parts.push(`Current date and time: ${formatPromptDateTime(new Date())}`);
+      if (this.tools.size > 0) {
+        parts.push(AGENT_TOOL_GUIDANCE);
+      }
     }
 
     return parts.join("\n\n");
