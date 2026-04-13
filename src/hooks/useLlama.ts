@@ -645,31 +645,16 @@ export function useLlama(): UseLlamaReturn {
           mmprojPath ?? "none",
         );
 
-        // Eagerly initialise multimodal if mmproj is provided.
+        // Store mmproj path for lazy init on first vision message.
+        // We intentionally do NOT eagerly call initMultimodal() here
+        // because it loads the full mmproj file into memory (~0.65 GB+),
+        // which on RAM-constrained devices (6 GB) can push total memory
+        // past the iOS jetsam limit and crash the app on launch. The
+        // lazy init path in generateResponse() handles loading on-demand
+        // when the user actually sends an image.
         if (mmprojPath) {
           mmprojPathRef.current = mmprojPath;
           setLoadedMmprojPath(mmprojPath);
-          try {
-            const ok = await ctx.initMultimodal({
-              path: mmprojPath,
-              use_gpu: false,
-            });
-            console.log("[LLM] eager initMultimodal result:", ok);
-            if (ok) {
-              multimodalEnabledRef.current = true;
-              setMultimodalEnabled(true);
-            } else {
-              console.warn(
-                "[LLM] eager initMultimodal returned false — will retry lazily",
-              );
-            }
-          } catch (mmErr) {
-            console.warn(
-              "[LLM] eager initMultimodal threw — will retry lazily:",
-              mmErr,
-            );
-            // Don't fail the whole load — lazy init will be attempted on first send
-          }
         } else {
           mmprojPathRef.current = null;
         }
