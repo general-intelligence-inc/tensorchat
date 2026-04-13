@@ -4736,6 +4736,15 @@ export function ChatScreen({
       // keeps the call site simple and stateless.
       const identity = deriveAppIdentity(userText);
 
+      // Derive the loaded model's nativeReasoning flag so the harness
+      // passes it to the Agent — Gemma 4 E2B needs this to avoid
+      // injecting chat_template_kwargs that its template doesn't expect.
+      const currentModel = llamaContextRef.current.loadedModelPath
+        ? (ALL_MODELS.find((m) =>
+            llamaContextRef.current.loadedModelPath!.endsWith(m.filename),
+          ) ?? null)
+        : null;
+
       try {
         const result = await runMiniAppHarness({
           chatId,
@@ -4744,6 +4753,7 @@ export function ChatScreen({
           cancelToken,
           retryAttempt,
           identity,
+          nativeReasoning: currentModel?.nativeReasoning ?? false,
           onStatusChange: (status) => {
             // Translate harness status into the existing UI state shape.
             // The harness now emits fine-grained generating phases

@@ -2053,6 +2053,19 @@ export function ModelCatalogScreen({
         })}
 
       </ScrollView>
+
+      {/* Full-screen loading overlay while a model is being loaded */}
+      {loadingModelId !== null && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={styles.loadingText}>
+              Loading{" "}
+              {getCatalogModelById(loadingModelId)?.name ?? "model"}...
+            </Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -2632,6 +2645,26 @@ function createStyles(colors: ColorPalette) {
       fontSize: 14,
       fontWeight: FONT.semibold,
       color: colors.destructive,
+    },
+
+    loadingOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.5)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    loadingBox: {
+      backgroundColor: colors.surface,
+      borderRadius: RADII.lg,
+      paddingHorizontal: 32,
+      paddingVertical: 24,
+      alignItems: "center",
+      gap: 16,
+    },
+    loadingText: {
+      fontSize: 15,
+      fontWeight: FONT.medium,
+      color: colors.textPrimary,
     },
   });
 }

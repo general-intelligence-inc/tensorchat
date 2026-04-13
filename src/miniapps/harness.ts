@@ -64,6 +64,9 @@ export interface HarnessOptions {
   cooldownMs?: number;
   contextBusyCooldownMs?: number;
   promptTokenBudget?: number;
+  /** Pass the loaded model's nativeReasoning flag so the Agent uses
+   *  the correct chat template kwargs for Gemma 4 E2B. */
+  nativeReasoning?: boolean;
 }
 
 /**
@@ -410,6 +413,7 @@ export async function runMiniAppHarness(
     cooldownMs = DEFAULT_COOLDOWN_MS,
     contextBusyCooldownMs = DEFAULT_CONTEXT_BUSY_COOLDOWN_MS,
     promptTokenBudget = DEFAULT_PROMPT_TOKEN_BUDGET,
+    nativeReasoning = false,
   } = opts;
 
   const startedAt = Date.now();
@@ -588,6 +592,7 @@ export async function runMiniAppHarness(
       emit,
       onStatusChange,
       dropPatchTool: bothPatchFailures,
+      nativeReasoning,
     });
 
     if (attemptResult.kind === "cancelled") {
@@ -977,6 +982,9 @@ async function runSingleAttempt(params: {
    * remove the patch tool from the available tool set entirely.
    */
   dropPatchTool?: boolean;
+  /** Model's nativeReasoning flag — forwarded to the Agent so
+   *  buildMessageFormattingParams uses the correct kwargs. */
+  nativeReasoning?: boolean;
 }): Promise<AttemptOutcome> {
   const {
     attempt,
@@ -991,6 +999,7 @@ async function runSingleAttempt(params: {
     emit,
     onStatusChange,
     dropPatchTool = false,
+    nativeReasoning = false,
   } = params;
 
   let writtenApp: MiniApp | null = null;
@@ -1129,7 +1138,7 @@ async function runSingleAttempt(params: {
     maxIterations: 1,
     thinking: false,
     alwaysThinks: false,
-    nativeReasoning: false,
+    nativeReasoning,
     maxGenerationTokens: MINIAPP_MAX_GENERATION_TOKENS,
     skipFinalForceText: true,
     // Opt into first-iteration streaming so text/thinking token events

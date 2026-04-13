@@ -484,10 +484,11 @@ function buildMessageFormattingParams(
     // instead of the top-level flag — without this kwarg, Qwen opens
     // a <think> block and wastes the entire output budget on reasoning.
     //
-    // We DON'T pass the kwarg when thinking is enabled because some
-    // templates (Gemma 4) don't expect it and may produce empty or
-    // malformed output when they see an unrecognized kwarg.
-    ...(enableThinking
+    // We DON'T pass the kwarg when thinking is enabled OR when the
+    // model uses native reasoning (Gemma 4) — those templates don't
+    // expect it and produce empty or malformed output when they see
+    // an unrecognized kwarg.
+    ...(enableThinking || nativeReasoning
       ? {}
       : { chat_template_kwargs: { enable_thinking: false } }),
     // Models with nativeReasoning (e.g. Gemma 4) or alwaysThinks (e.g. LFM

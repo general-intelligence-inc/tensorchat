@@ -42,12 +42,21 @@ Always treat `app.json` and `package.json` as canonical for runtime/platform fac
 | Voice STT/TTS pipeline | `src/hooks/useVoice.ts`, `packages/react-native-sherpa-voice` |
 | Auto-load previously selected model on app startup | `App.tsx` |
 | Persisted chats and active thread | `ChatScreen` + AsyncStorage |
+| Mini App Builder (artifact-first AI apps) | `src/agent/`, `src/miniapps/` |
+| Agentic tool calling (ReAct loop) | `src/agent/Agent.ts`, `src/agent/llamaAdapter.ts` |
+| Web search tool (DuckDuckGo) | `src/agent/tools/webSearch.ts`, `src/utils/webSearch.ts` |
+| File Vault / RAG (document ingestion + vector search) | `src/hooks/useFileRag.ts`, `src/context/FileRagContext.tsx`, `src/screens/FileVaultScreen.tsx` |
+| On-device embeddings (EmbeddingGemma) | `src/hooks/useEmbeddingModelAsset.ts` |
 
 ### Current model matrix
 
-- Base models: `0.8B`, `2B`, `4B`
-- Quantizations currently supported: `Q3_K_M`, `Q4_K_M`, `Q8_0`
+- Chat model families: Qwen3.5 (`0.8B`, `2B`, `4B`), Gemma 4 E2B, LFM2.5 (`350M`, `1.2B`)
+- Quantizations currently supported: `Q3_K_M`, `Q4_K_M`, `Q8_0`, `BF16`, `UD_IQ2_M`
 - Vision models include `mmproj` sidecar handling
+- Gemma 4 E2B has `nativeReasoning: true` (uses native reasoning tokens, not `<think>` tags)
+- Mini-app eligible models: Qwen 3.5 4B Q4_K_M (95% e2e), Gemma 4 E2B (Q4_K_M + IQ2_M)
+- Embedding model: EmbeddingGemma 300M (Q4_0) for File Vault
+- Translation models: EuroLLM 1.7B Q4, TranslateGemma 4B Q3
 - Model metadata is generated via `buildModels()` in `src/constants/models.ts`
 
 ---
@@ -59,31 +68,106 @@ tensorchat/
 ├── App.tsx
 ├── app.json
 ├── package.json
-├── skills-lock.json
 ├── src/
+│   ├── agent/
+│   │   ├── Agent.ts                  # ReAct agent loop
+│   │   ├── llamaAdapter.ts           # Bridge to useLlama
+│   │   ├── miniAppAgent.ts           # Mini-app agent builder + compaction
+│   │   ├── miniAppPromptText.ts      # System prompt constants
+│   │   ├── types.ts                  # Agent/Tool/Event types
+│   │   └── tools/
+│   │       ├── webSearch.ts
+│   │       ├── writeMiniApp.ts
+│   │       └── patchMiniApp.ts
 │   ├── components/
+│   │   ├── AppBootScreen.tsx
+│   │   ├── CameraCaptureModal.tsx
 │   │   ├── ChatEmptyState.tsx
 │   │   ├── ChatHeader.tsx
 │   │   ├── ChatInput.tsx
+│   │   ├── ManagedAssetRow.tsx
 │   │   ├── MessageBubble.tsx
 │   │   ├── ModelPickerDropdown.tsx
 │   │   ├── PromptSuggestions.tsx
-│   │   └── Sidebar.tsx
+│   │   ├── Sidebar.tsx
+│   │   └── TensorChatBrandLockup.tsx
 │   ├── constants/
 │   │   ├── models.ts
 │   │   └── theme.ts
 │   ├── context/
-│   │   └── LlamaContext.ts
+│   │   ├── FileRagContext.tsx
+│   │   ├── LlamaContext.ts
+│   │   └── ThemeContext.tsx
 │   ├── hooks/
+│   │   ├── useEmbeddingModelAsset.ts
+│   │   ├── useFileRag.ts
 │   │   ├── useLlama.ts
 │   │   └── useVoice.ts
+│   ├── miniapps/
+│   │   ├── harness.ts                # Retry loop + timeout management
+│   │   ├── MiniAppChatView.tsx
+│   │   ├── MiniAppFullscreen.tsx
+│   │   ├── MiniAppHome.tsx
+│   │   ├── MiniAppWebView.tsx        # Sandboxed WebView container
+│   │   ├── DevTracePanel.tsx
+│   │   ├── classifyError.ts
+│   │   ├── errorFeedback.ts
+│   │   ├── identity.ts
+│   │   ├── llamaErrorCatalog.ts
+│   │   ├── memory.ts                 # Durable agent notes
+│   │   ├── pipelineCore.ts           # Validation pipeline
+│   │   ├── storage.ts
+│   │   ├── toolPipeline.ts
+│   │   ├── types.ts
+│   │   ├── verifyLoop.ts             # Post-write verification + auto-retry
+│   │   ├── runtime/
+│   │   │   ├── tc.ts                 # 12-primitive component runtime
+│   │   │   └── theme.ts
+│   │   └── validator/
+│   │       ├── applyPatch.ts
+│   │       ├── schema.ts             # Component registry + prop validation
+│   │       ├── smokeTest.ts
+│   │       ├── staticChecks.ts
+│   │       ├── tcStub.ts
+│   │       └── types.ts
 │   ├── navigation/
 │   │   └── AppNavigator.tsx
-│   └── screens/
-│       ├── ChatScreen.tsx
-│       └── ModelCatalogScreen.tsx
-└── scripts/
-    └── test-think-parser.js
+│   ├── screens/
+│   │   ├── ChatScreen.tsx
+│   │   ├── FileVaultScreen.tsx
+│   │   └── ModelCatalogScreen.tsx
+│   ├── types/
+│   │   ├── fileRag.ts
+│   │   ├── webSearch.ts
+│   │   └── react-native-enriched-markdown.d.ts
+│   └── utils/
+│       ├── bootTrace.ts
+│       ├── fileReaders.ts
+│       ├── kokoroPhonemizer.native.ts
+│       ├── kokoroPhonemizer.ts
+│       ├── kokoroTokenizer.ts
+│       ├── loadableModels.ts
+│       ├── markdownLatex.ts
+│       ├── modelDownloadManager.ts
+│       ├── modelMemory.ts
+│       ├── optionalRequire.ts
+│       ├── reasoning.ts
+│       ├── translationLanguage.ts
+│       ├── ttsText.ts
+│       └── webSearch.ts
+├── packages/
+│   ├── react-native-sherpa-voice/
+│   ├── react-native-phonemis/
+│   └── react-native-document-ocr/
+├── scripts/
+│   ├── test-think-parser.js
+│   ├── test-kokoro-phonemizer.js
+│   ├── test-miniapp-local.ts
+│   ├── test-miniapp-e2e.ts
+│   └── ...
+├── plugins/
+│   └── with-ios-launch-storyboard-cache-bust/
+└── web/                              # Separate Vite + React marketing site
 ```
 
 Do not reintroduce removed legacy settings screens unless explicitly requested.
@@ -97,13 +181,15 @@ Do not reintroduce removed legacy settings screens unless explicitly requested.
 3. Keep a single `useLlama()` instance at app root (`App.tsx`) and consume via `LlamaContext`.
 4. Preserve dynamic `require(...)` guards for native-only modules in files that may evaluate in web/non-native contexts:
    - `llama.rn`
-    - `react-native-sherpa-voice`
-    - `onnxruntime-react-native`
+   - `react-native-sherpa-voice`
+   - `onnxruntime-react-native`
    - `react-native-audio-api`
    - `react-native-zip-archive`
 5. Model catalog changes must flow through `buildModels()` / `ModelConfig` in `src/constants/models.ts`.
 6. Keep model artifacts in app document storage (`.../models/`) with integrity checks before load.
 7. Respect portrait-only + automatic system appearance policy from `app.json`.
+8. Mini-app component registry (`validator/schema.ts`) must stay in sync with `runtime/tc.ts` and `miniAppPromptText.ts` — edit all three together.
+9. Mini-app WebView must remain fully sandboxed: no network, no file access beyond app directory, CSP enforced.
 
 ---
 
@@ -124,6 +210,7 @@ Why: avoids excessive allocations/re-renders and keeps scroll behavior stable.
 ### 3) Prompt construction and thinking tags
 
 - Text chat uses Qwen sentinel format: `<|im_start|>` / `<|im_end|>`.
+- Gemma 4 E2B uses native reasoning tokens (`nativeReasoning: true`) — do NOT inject `chat_template_kwargs: { enable_thinking }` for these models.
 - Keep sentinel tokens intact when modifying prompt logic.
 - Strip assistant `<think>...</think>` from prior turns before re-feeding history.
 
@@ -146,12 +233,39 @@ Why: avoids excessive allocations/re-renders and keeps scroll behavior stable.
 - Chats + active chat id are persisted in AsyncStorage.
 - Chat writes are debounced in `ChatScreen`.
 - App startup attempts auto-load of previously selected valid model in `App.tsx`.
+- Mini-apps are persisted to disk (program.js + meta.json) with an AsyncStorage index.
 
 ### 7) Design token policy
 
 - Use `src/constants/theme.ts` for shared tokens.
 - Avoid hardcoding new one-off visual constants unless necessary.
 - Before adding or restyling UI, inspect adjacent or equivalent components first and match their badge treatment, spacing, and layout patterns unless you are intentionally making a shared design-system change.
+
+### 8) Agent / tool-calling pattern
+
+- The `Agent` class implements a ReAct loop: generate -> check tool calls -> execute -> re-generate.
+- `agentGenerate()` in `llamaAdapter.ts` bridges Agent to `useLlama.generateResponse()`.
+- For `alwaysThinks` models: tool definitions go in the system prompt (not llama.rn grammar) to avoid token conflicts.
+- For `nativeReasoning` models (Gemma 4): skip `chat_template_kwargs` injection — their templates don't expect it.
+- Thinking is always disabled when tools are present (no reasoning budget during tool planning).
+- Mini-app mode disables direct-search fallback and chat-mode prompt suffixes.
+
+### 9) Mini-app builder pattern
+
+- The harness (`miniapps/harness.ts`) wraps `Agent.run()` with timeouts, retries, and compaction.
+- Each attempt creates a fresh `Agent` instance — no state carried between attempts.
+- The 8-step validation pipeline (`pipelineCore.ts`) validates before writing to disk.
+- Post-write verification window (2.5s) + auto-retry for runtime errors.
+- Compaction levels 0-3 progressively shrink the system prompt to free output budget.
+- Model's `nativeReasoning` flag must be threaded through `HarnessOptions` to the Agent constructor.
+
+### 10) File RAG pattern
+
+- `useFileRag` owns document ingestion, chunking, embedding, and vector search.
+- `FileRagContext` provides RAG capabilities throughout the app.
+- EmbeddingGemma model lifecycle managed by `useEmbeddingModelAsset`.
+- Vector storage uses op-sqlite with SQLiteVec extension.
+- Per-chat source management with enable/disable toggles.
 
 ---
 
@@ -177,7 +291,7 @@ Use these skills when work matches the trigger. Prefer the minimum set that full
 If skill guidance conflicts with repo constraints:
 
 1. System/developer/user instructions
-2. This `AGENTS.md`
+2. This `CLAUDE.md`
 3. Skill defaults
 
 Example: some generic Expo UI skills prefer Expo Router patterns; TensorChat uses React Navigation and should keep it unless explicitly asked otherwise.
@@ -243,6 +357,13 @@ Notes:
 | Tokens/theming | `src/constants/theme.ts` |
 | Navigation entry | `src/navigation/AppNavigator.tsx` |
 | Runtime/build config | `app.json`, `package.json` |
+| Agent/tool calling | `src/agent/Agent.ts`, `src/agent/llamaAdapter.ts`, `src/agent/types.ts` |
+| Mini-app builder | `src/agent/miniAppAgent.ts`, `src/agent/miniAppPromptText.ts`, `src/miniapps/harness.ts` |
+| Mini-app runtime / components | `src/miniapps/runtime/tc.ts`, `src/miniapps/validator/schema.ts` |
+| Mini-app storage/persistence | `src/miniapps/storage.ts`, `src/miniapps/types.ts` |
+| Mini-app validation pipeline | `src/miniapps/pipelineCore.ts`, `src/miniapps/validator/` |
+| File Vault / RAG | `src/hooks/useFileRag.ts`, `src/context/FileRagContext.tsx`, `src/screens/FileVaultScreen.tsx` |
+| Web search tool | `src/agent/tools/webSearch.ts`, `src/utils/webSearch.ts` |
 
 ---
 
@@ -260,14 +381,20 @@ When touching thinking/streaming/parser logic, also run:
 npm run test:think-parser
 ```
 
-When editing `AGENTS.md`, run consistency checks:
+When touching mini-app builder, also run:
+
+```bash
+npm run test:miniapp
+```
+
+When editing `CLAUDE.md`, run consistency checks:
 
 ```bash
 # Must return no stale matches outside this verification section
-! sed '/^## Strict Verification Gate/,$d' AGENTS.md | rg -n "SettingsScreen|com\.tensorchat\.app|UD-IQ2_M|Q5_K_M|Q6_K"
+! sed '/^## Strict Verification Gate/,$d' CLAUDE.md | rg -n "SettingsScreen|com\.tensorchat\.app|Q5_K_M|Q6_K"
 
 # Must confirm current architecture terms are present
-rg -n "ModelCatalogScreen|useVoice|react-native-sherpa-voice|io\.tensorpath\.chat|Q3_K_M|Q4_K_M|Q8_0|buildModels" AGENTS.md
+rg -n "ModelCatalogScreen|useVoice|react-native-sherpa-voice|io\.tensorpath\.chat|Q3_K_M|Q4_K_M|Q8_0|buildModels|miniAppAgent|harness|FileRagContext|useFileRag" CLAUDE.md
 ```
 
 If a required command fails, fix issues before finishing.

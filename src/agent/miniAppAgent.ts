@@ -182,6 +182,8 @@ export interface MiniAppAgentOptions {
   identity: MiniAppIdentity;
   onWritten: (app: MiniApp) => void | Promise<void>;
   onEvent?: (event: import("./types").AgentEvent) => void;
+  /** Pass the loaded model's nativeReasoning flag (e.g. true for Gemma 4 E2B). */
+  nativeReasoning?: boolean;
 }
 
 // BASE_SYSTEM_PROMPT and PATCH_EXAMPLES are imported from
@@ -386,7 +388,7 @@ export function createMiniAppAgent(opts: MiniAppAgentOptions): Agent {
     maxIterations: MINIAPP_MAX_ITERATIONS,
     thinking: false,
     alwaysThinks: false,
-    nativeReasoning: false,
+    nativeReasoning: opts.nativeReasoning ?? false,
     maxGenerationTokens: MINIAPP_MAX_GENERATION_TOKENS,
     // No trailing text confirmation — the written app IS the reply, and
     // a second generation would race the llama context.

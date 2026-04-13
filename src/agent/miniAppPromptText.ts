@@ -140,6 +140,7 @@ tc.mount(renderFn) installs a render function. renderFn is called every time sta
 - NO external libraries, no imports, no fetch, no network (blocked).
 - Only the 12 tc.* primitives above.
 - **NO style props**. Do NOT pass \`style\`, \`className\`, \`class\`, \`sx\`, or \`tw\` to any component — tc handles ALL styling via its baked-in theme. Only the listed props for each component are allowed.
+- **Layout**: use tc.grid({ columns: 4 }) for keypads and button grids. tc.row is for 2-4 items in a line.
 - Keep the program tight — target under 2500 characters.
 - End every program with a tc.mount(renderFn) call. Apps without mount show a blank screen.
 - Confirm in one short sentence. Do NOT paste the code back into chat.`;

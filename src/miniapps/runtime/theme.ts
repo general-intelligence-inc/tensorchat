@@ -183,6 +183,12 @@ img, canvas, video, svg {
   display: flex;
   flex-direction: row;
   align-items: stretch;
+  flex-wrap: wrap;
+}
+/* Buttons inside rows share space equally and shrink to fit. */
+.tc-row > .tc-btn {
+  flex: 1 1 0;
+  min-width: 0;
 }
 .tc-column {
   display: flex;
