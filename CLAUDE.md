@@ -54,7 +54,7 @@ Always treat `app.json` and `package.json` as canonical for runtime/platform fac
 - Quantizations currently supported: `Q3_K_M`, `Q4_K_M`, `Q8_0`, `BF16`, `UD_IQ2_M`
 - Vision models include `mmproj` sidecar handling
 - Gemma 4 E2B has `nativeReasoning: true` (uses native reasoning tokens, not `<think>` tags)
-- Mini-app eligible models: Qwen 3.5 4B Q4_K_M (95% e2e), Gemma 4 E2B (Q4_K_M + IQ2_M)
+- Mini-app eligible models: Qwen 3.5 4B Q4_K_M (95% e2e), Gemma 4 E2B Q4_K_M (76% e2e) — IQ2_M excluded (too unreliable)
 - Embedding model: EmbeddingGemma 300M (Q4_0) for File Vault
 - Translation models: EuroLLM 1.7B Q4, TranslateGemma 4B Q3
 - Model metadata is generated via `buildModels()` in `src/constants/models.ts`
