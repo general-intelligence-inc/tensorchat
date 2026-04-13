@@ -30,6 +30,7 @@ All models are GGUF builds sourced from HuggingFace and loaded via our [llama.rn
 |---|---|---|---|
 | **Qwen3.5** | 0.8B, 2B, 4B | Yes | Recommended default; best mini-app builder performance |
 | **Gemma 4 E2B** | 2B effective | Yes | Native reasoning; Google multimodal |
+| **Nemotron 3 Nano** | 4B | No | NVIDIA reasoning model |
 | **LFM2.5** | 350M, 1.2B | No | LiquidAI ultra-lightweight for older devices |
 
 Quantizations: `Q3_K_M`, `Q4_K_M` (recommended), `Q8_0`, `BF16`, `UD_IQ2_M`.
@@ -172,4 +173,4 @@ Security vulnerabilities: see [SECURITY.md](SECURITY.md) — please use GitHub P
 
 Apache-2.0. See [LICENSE](LICENSE).
 
-Third-party runtimes and models (llama.rn fork, sherpa-onnx, Qwen, Gemma, LFM2.5, Kokoro) are licensed by their respective upstream authors. See [`zhi-x-ye/llama.rn`](https://github.com/zhi-x-ye/llama.rn) for the specific llama.rn fork used by this project.
+Third-party runtimes and models (llama.rn fork, sherpa-onnx, Qwen, Gemma, Nemotron, LFM2.5, Kokoro) are licensed by their respective upstream authors. See [`zhi-x-ye/llama.rn`](https://github.com/zhi-x-ye/llama.rn) for the specific llama.rn fork used by this project.

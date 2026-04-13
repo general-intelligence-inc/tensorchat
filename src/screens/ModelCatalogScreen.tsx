@@ -79,6 +79,7 @@ function ModelBrandIcon({
   baseModel: string;
   size: number;
 }): React.JSX.Element {
+  const { colors } = useTheme();
   const badge = getModelBrandBadge(baseModel);
   if (badge.svg) {
     return (
@@ -87,7 +88,7 @@ function ModelBrandIcon({
           width: size,
           height: size,
           borderRadius: size * 0.25,
-          backgroundColor: badge.color + "18",
+          backgroundColor: colors.base,
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",

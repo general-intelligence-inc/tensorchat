@@ -212,7 +212,7 @@ export function MiniAppChatView({
           <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.placeholderTitle}>Building your app…</Text>
           <Text style={styles.placeholderBody}>
-            This only takes a few seconds on-device.
+            This might take a few minutes.
           </Text>
         </View>
       ) : (
