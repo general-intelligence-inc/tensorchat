@@ -195,6 +195,8 @@ export interface UseLlamaReturn {
 export interface LlamaGenerationOptions {
   thinking?: boolean;
   alwaysThinks?: boolean;
+  /** Route tool definitions via system prompt instead of llama.rn GBNF grammar. */
+  systemPromptTools?: boolean;
   nativeReasoning?: boolean;
   thinkingBudget?: ThinkingBudget;
   tools?: LlamaToolDefinition[];
@@ -445,7 +447,7 @@ function hasImageMessages(messages: StructuredMessages): boolean {
 
 function buildMessageFormattingParams(
   messages: StructuredMessages,
-  options?: LlamaPromptTokenCountOptions & { alwaysThinks?: boolean; nativeReasoning?: boolean },
+  options?: LlamaPromptTokenCountOptions & { alwaysThinks?: boolean; systemPromptTools?: boolean; nativeReasoning?: boolean },
 ): {
   jinja: true;
   enable_thinking: boolean;
@@ -500,12 +502,11 @@ function buildMessageFormattingParams(
       : needsReasoningFormat
         ? ("auto" as const)
         : ("none" as const),
-    // Don't pass tools to llama.rn for models that always think —
-    // the GBNF grammar llama.rn generates for tool calls blocks the
-    // <think> tokens the model always produces, causing generation to
-    // hang. Tool definitions are added to the system prompt instead,
-    // and parseToolCallsFromRawText handles parsing.
-    ...(options?.tools && options.tools.length > 0 && !alwaysThinks
+    // Skip GBNF grammar for tool calls when the model uses system-prompt
+    // tool routing (systemPromptTools) or always emits think tags
+    // (alwaysThinks). Tool definitions are added to the system prompt
+    // instead, and parseToolCallsFromRawText handles parsing.
+    ...(options?.tools && options.tools.length > 0 && !alwaysThinks && !options?.systemPromptTools
       ? {
           tools: options.tools,
           tool_choice: options.toolChoice ?? "auto",
@@ -1187,6 +1188,7 @@ export function useLlama(): UseLlamaReturn {
               {
                 thinking,
                 alwaysThinks,
+                systemPromptTools: options?.systemPromptTools,
                 nativeReasoning,
                 tools: options?.tools,
                 toolChoice: options?.toolChoice,

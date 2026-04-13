@@ -91,6 +91,8 @@ export interface AgentConfig {
   thinking?: boolean;
   thinkingBudget?: number;
   alwaysThinks?: boolean;
+  /** Route tool definitions via system prompt instead of llama.rn GBNF grammar. */
+  systemPromptTools?: boolean;
   nativeReasoning?: boolean;
   /** Override the per-call output token cap (`n_predict`). */
   maxGenerationTokens?: number;

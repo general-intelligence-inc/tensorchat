@@ -1061,6 +1061,7 @@ function buildToolEnabledMessages(
   currentToolTranscript?: AssistantToolTranscript,
   promptDateTime?: string,
   modelAlwaysThinks?: boolean,
+  modelSystemPromptTools?: boolean,
   tools?: ReadonlyArray<{ type: string; function: { name: string; description: string; parameters: object } }>,
   directSearchContext?: string,
 ): StructuredMessages {
@@ -1084,7 +1085,7 @@ function buildToolEnabledMessages(
 
   let systemContent = getEffectiveSystemPrompt(settings, thinkingBudget, true, promptDateTime);
 
-  if (modelAlwaysThinks && !directSearchContext && tools && tools.length > 0 && !currentToolTranscript) {
+  if ((modelAlwaysThinks || modelSystemPromptTools) && !directSearchContext && tools && tools.length > 0 && !currentToolTranscript) {
     // Only embed tool definitions when NOT using direct search.
     // Use the documented LFM format: "List of tools: {json}"
     const toolDefs = JSON.stringify(tools.map((t) => ({
@@ -1172,6 +1173,7 @@ function buildAssistantRequest({
   promptDateTime,
   modelSupportsThinking,
   modelAlwaysThinks,
+  modelSystemPromptTools,
   modelNativeReasoning,
   tools,
   directSearchContext,
@@ -1186,6 +1188,7 @@ function buildAssistantRequest({
   promptDateTime?: string;
   modelSupportsThinking?: boolean;
   modelAlwaysThinks?: boolean;
+  modelSystemPromptTools?: boolean;
   modelNativeReasoning?: boolean;
   tools?: ReadonlyArray<{ type: string; function: { name: string; description: string; parameters: object } }>;
   directSearchContext?: string;
@@ -1220,6 +1223,7 @@ function buildAssistantRequest({
             currentToolTranscript,
             promptDateTime,
             modelAlwaysThinks,
+            modelSystemPromptTools,
             tools,
             directSearchContext,
           )
@@ -2900,6 +2904,7 @@ export function ChatScreen({
     ? false
     : (loadedModel?.supportsToolCalling ?? false);
   const modelAlwaysThinks = loadedModel?.alwaysThinks ?? false;
+  const modelSystemPromptTools = loadedModel?.systemPromptTools ?? false;
   const modelNativeReasoning = loadedModel?.nativeReasoning ?? false;
   const isPreparingVoice =
     voiceProgress?.model !== "tts" &&
@@ -3977,6 +3982,7 @@ export function ChatScreen({
         thinking: settings.thinkingEnabled,
         thinkingBudget: agentThinkingBudget?.maxReasoningTokens,
         alwaysThinks: model?.alwaysThinks ?? false,
+        systemPromptTools: model?.systemPromptTools ?? false,
         nativeReasoning: model?.nativeReasoning ?? false,
         onEvent: (event: AgentEvent) => {
           switch (event.type) {
@@ -4264,6 +4270,7 @@ export function ChatScreen({
               promptDateTime,
               modelSupportsThinking,
               modelAlwaysThinks,
+              modelSystemPromptTools,
               modelNativeReasoning,
               tools: attemptSettings.webSearchEnabled ? [WEB_SEARCH_TOOL] : undefined,
               directSearchContext,
@@ -4412,6 +4419,7 @@ export function ChatScreen({
             {
               thinking: thinkingEnabled,
               alwaysThinks: modelAlwaysThinks,
+              systemPromptTools: modelSystemPromptTools,
               nativeReasoning: modelNativeReasoning,
               thinkingBudget,
               ...(allowToolCallingThisAttempt
@@ -4754,6 +4762,7 @@ export function ChatScreen({
           retryAttempt,
           identity,
           nativeReasoning: currentModel?.nativeReasoning ?? false,
+          systemPromptTools: currentModel?.systemPromptTools ?? false,
           onStatusChange: (status) => {
             // Translate harness status into the existing UI state shape.
             // The harness now emits fine-grained generating phases

@@ -48,6 +48,8 @@ export interface AgentGenerateOptions {
   thinking?: boolean;
   thinkingBudget?: number;
   alwaysThinks?: boolean;
+  /** Route tool definitions via system prompt instead of llama.rn GBNF grammar. */
+  systemPromptTools?: boolean;
   nativeReasoning?: boolean;
   /** Override the per-call output token cap (`n_predict`). */
   maxGenerationTokens?: number;
@@ -73,17 +75,21 @@ export async function agentGenerate(
     thinking,
     thinkingBudget,
     alwaysThinks,
+    systemPromptTools,
     nativeReasoning,
     maxGenerationTokens,
     onEvent,
   } = options;
 
   const hasTools = Array.isArray(tools) && tools.length > 0;
+  // Use system-prompt tool routing when the model always emits think tags
+  // (which conflict with GBNF grammar) OR when explicitly requested.
+  const useSystemPromptTools = alwaysThinks || systemPromptTools;
 
-  // For alwaysThinks models, embed tool definitions in the system prompt
-  // instead of passing them through llama.rn's grammar system.
+  // For models that need system-prompt tools, embed tool definitions in the
+  // system prompt instead of passing them through llama.rn's grammar system.
   let messagesWithToolPrompt = messages;
-  if (hasTools && alwaysThinks) {
+  if (hasTools && useSystemPromptTools) {
     const toolBlock = buildToolSystemPromptBlock(tools);
     messagesWithToolPrompt = messages.map((msg, idx) => {
       if (idx === 0 && msg.role === "system" && typeof msg.content === "string") {
@@ -114,9 +120,9 @@ export async function agentGenerate(
           },
         }
       : {}),
-    // For non-alwaysThinks models, pass tools through to llama.rn for
-    // grammar-based structured tool calling.
-    ...(hasTools && !alwaysThinks ? { tools: toLlamaToolDefinitions(tools) } : {}),
+    // Pass tools through to llama.rn for grammar-based structured tool
+    // calling, unless the model uses system-prompt tool routing.
+    ...(hasTools && !useSystemPromptTools ? { tools: toLlamaToolDefinitions(tools) } : {}),
     // Explicit override for the per-call output cap. Overrides the budget
     // derived from thinking state inside useLlama.generateResponse.
     ...(typeof maxGenerationTokens === "number"

@@ -31,6 +31,8 @@ interface ChatModelFamilyDefinition {
   alwaysThinks?: boolean;
   nativeReasoning?: boolean;
   supportsToolCalling?: boolean;
+  /** Route tool definitions via system prompt instead of llama.rn GBNF grammar. */
+  systemPromptTools?: boolean;
   isVisionModel?: boolean;
 }
 
@@ -55,6 +57,8 @@ export interface ModelConfig {
   alwaysThinks: boolean;
   nativeReasoning: boolean;
   supportsToolCalling: boolean;
+  /** Route tool definitions via system prompt instead of llama.rn GBNF grammar. */
+  systemPromptTools: boolean;
   isVisionModel: boolean;
   catalogKind: ModelCatalogKind;
   recommended?: boolean;
@@ -189,6 +193,7 @@ const CHAT_MODEL_FAMILY_N3_4B: ChatModelFamilyDefinition = {
       recommended: true,
     },
   ],
+  systemPromptTools: true,
   isVisionModel: false,
 };
 
@@ -297,6 +302,7 @@ function buildModels(family: ChatModelFamilyDefinition): ModelConfig[] {
       alwaysThinks: modelAlwaysThinks,
       nativeReasoning: family.nativeReasoning === true,
       supportsToolCalling: hasToolCalling,
+      systemPromptTools: family.systemPromptTools === true,
       isVisionModel: hasVision,
       catalogKind: "chat",
       recommended,
@@ -334,6 +340,7 @@ const GEMMA_E2B_IQ2_MODEL: ModelConfig = {
   alwaysThinks: false,
   nativeReasoning: true,
   supportsToolCalling: true,
+  systemPromptTools: false,
   isVisionModel: false,
   catalogKind: "chat",
 };
@@ -463,6 +470,7 @@ export const EMBEDDING_MODEL: ModelConfig = {
   alwaysThinks: false,
   nativeReasoning: false,
   supportsToolCalling: false,
+  systemPromptTools: false,
   isVisionModel: false,
   catalogKind: "embedding",
   minimumBytes: EMBEDDING_MODEL_MINIMUM_BYTES,
@@ -491,6 +499,7 @@ export const EURO_LLM_TRANSLATION_MODEL: ModelConfig = {
   alwaysThinks: false,
   nativeReasoning: false,
   supportsToolCalling: false,
+  systemPromptTools: false,
   isVisionModel: false,
   catalogKind: "translation",
   // recommended: true,
@@ -518,6 +527,7 @@ export const TRANSLATE_GEMMA_TRANSLATION_MODEL: ModelConfig = {
   alwaysThinks: false,
   nativeReasoning: false,
   supportsToolCalling: false,
+  systemPromptTools: false,
   isVisionModel: false,
   catalogKind: "translation",
 };

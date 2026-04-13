@@ -67,6 +67,8 @@ export interface HarnessOptions {
   /** Pass the loaded model's nativeReasoning flag so the Agent uses
    *  the correct chat template kwargs for Gemma 4 E2B. */
   nativeReasoning?: boolean;
+  /** Route tool definitions via system prompt instead of GBNF grammar. */
+  systemPromptTools?: boolean;
 }
 
 /**
@@ -414,6 +416,7 @@ export async function runMiniAppHarness(
     contextBusyCooldownMs = DEFAULT_CONTEXT_BUSY_COOLDOWN_MS,
     promptTokenBudget = DEFAULT_PROMPT_TOKEN_BUDGET,
     nativeReasoning = false,
+    systemPromptTools = false,
   } = opts;
 
   const startedAt = Date.now();
@@ -593,6 +596,7 @@ export async function runMiniAppHarness(
       onStatusChange,
       dropPatchTool: bothPatchFailures,
       nativeReasoning,
+      systemPromptTools,
     });
 
     if (attemptResult.kind === "cancelled") {
@@ -985,6 +989,8 @@ async function runSingleAttempt(params: {
   /** Model's nativeReasoning flag — forwarded to the Agent so
    *  buildMessageFormattingParams uses the correct kwargs. */
   nativeReasoning?: boolean;
+  /** Route tool definitions via system prompt instead of GBNF grammar. */
+  systemPromptTools?: boolean;
 }): Promise<AttemptOutcome> {
   const {
     attempt,
@@ -1000,6 +1006,7 @@ async function runSingleAttempt(params: {
     onStatusChange,
     dropPatchTool = false,
     nativeReasoning = false,
+    systemPromptTools = false,
   } = params;
 
   let writtenApp: MiniApp | null = null;
@@ -1138,6 +1145,7 @@ async function runSingleAttempt(params: {
     maxIterations: 1,
     thinking: false,
     alwaysThinks: false,
+    systemPromptTools,
     nativeReasoning,
     maxGenerationTokens: MINIAPP_MAX_GENERATION_TOKENS,
     skipFinalForceText: true,

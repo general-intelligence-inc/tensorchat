@@ -269,6 +269,7 @@ export class Agent {
           thinking: this.config.thinking,
           thinkingBudget: this.config.thinkingBudget,
           alwaysThinks: this.config.alwaysThinks,
+          systemPromptTools: this.config.systemPromptTools,
           nativeReasoning: this.config.nativeReasoning,
           maxGenerationTokens: this.config.maxGenerationTokens,
           onEvent: iterationOnEvent,
