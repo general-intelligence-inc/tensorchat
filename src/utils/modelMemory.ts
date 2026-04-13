@@ -112,13 +112,11 @@ export function buildOptimizedInitParams(opts: {
   cache_type_k?: string;
   cache_type_v?: string;
   flash_attn_type?: string;
-  use_mmap?: boolean;
 } {
   const params: {
     cache_type_k?: string;
     cache_type_v?: string;
     flash_attn_type?: string;
-    use_mmap?: boolean;
   } = {};
 
   // KV cache quantization: q8_0 for models >= 1.5 GB saves ~50% cache RAM
@@ -131,16 +129,17 @@ export function buildOptimizedInitParams(opts: {
   // Flash attention: let llama.cpp auto-detect support per architecture.
   params.flash_attn_type = "auto";
 
-  // NOTE: n_gpu_layers is intentionally NOT set here. On Apple Silicon's
-  // unified memory architecture, setting n_gpu_layers causes the model
-  // weights to be malloc'd into Metal GPU buffers IN ADDITION to the
-  // mmap'd/loaded copy — effectively doubling memory usage. llama.rn
-  // handles Metal acceleration internally via ggml-metal without needing
-  // explicit layer offloading.
-
-  // Memory mapping reduces peak RAM during model loading by lazily
-  // paging model data instead of requiring contiguous allocation.
-  params.use_mmap = true;
+  // NOTE: n_gpu_layers and use_mmap are intentionally NOT set here.
+  //
+  // n_gpu_layers: On Apple Silicon's unified memory, setting n_gpu_layers
+  // causes model weights to be malloc'd into Metal GPU buffers in addition
+  // to the loaded copy — doubling memory usage. llama.rn handles Metal
+  // acceleration internally without needing explicit layer offloading.
+  //
+  // use_mmap: On iOS with Metal, mmap creates a memory-mapped copy of the
+  // model file AND Metal still allocates its own computation buffers —
+  // resulting in 2x memory. Letting llama.cpp use its default allows it
+  // to load directly into the appropriate buffers without duplication.
 
   return params;
 }
