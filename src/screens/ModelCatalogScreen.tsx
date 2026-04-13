@@ -1241,9 +1241,8 @@ export function ModelCatalogScreen({
                   model.sizeGB,
                   getDeviceTotalMemoryBytes(),
                 ),
-                modelSizeGB: model.sizeGB,
               }
-            : { modelSizeGB: model.sizeGB };
+            : undefined;
         const didLoad = await loadModel(
           modelFilePath(model.filename),
           mmprojPath,

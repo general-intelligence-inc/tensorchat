@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useMemo } from "react";
-import { Platform } from "react-native";
 import { DEFAULT_THINKING_BUDGET, type ThinkingBudget } from "../constants/models";
 import {
   combineReasoningAndResponse,
@@ -7,7 +6,6 @@ import {
   stripThinkingTags,
 } from "../utils/reasoning";
 import { optionalRequire } from "../utils/optionalRequire";
-import { buildOptimizedInitParams } from "../utils/modelMemory";
 
 // Gracefully handle environments where llama.rn is not fully available
 let initLlama:
@@ -219,11 +217,6 @@ export interface LlamaLoadOptions {
    * injects the current app code plus grammar-constrained tool output.
    */
   contextSize?: number;
-  /**
-   * Model file size in GB (from ModelConfig.sizeGB). Used to select
-   * optimal initLlama parameters (KV cache quantization, GPU layers, etc.).
-   */
-  modelSizeGB?: number;
 }
 
 export interface LlamaPromptTokenCountOptions {
@@ -637,15 +630,10 @@ export function useLlama(): UseLlamaReturn {
         // (e.g. Mini Apps mode passes 16384 so the system prompt injection +
         // tool-grammar overhead + app-code output all fit comfortably).
         const contextSize = options?.contextSize ?? 8192;
-        const optimized = buildOptimizedInitParams({
-          modelSizeGB: options?.modelSizeGB ?? 2,
-          platform: Platform.OS,
-        });
         const ctx = await initLlama({
           model: modelPath,
           n_ctx: contextSize,
           n_threads: 4,
-          ...optimized,
         });
 
         contextRef.current = ctx;
@@ -764,15 +752,10 @@ export function useLlama(): UseLlamaReturn {
       setLoadedTranslationModelPath(null);
 
       const contextSize = 4096;
-      const optimized = buildOptimizedInitParams({
-        modelSizeGB: 1.5,
-        platform: Platform.OS,
-      });
       const ctx = await initLlama({
         model: modelPath,
         n_ctx: contextSize,
         n_threads: 4,
-        ...optimized,
       });
 
       translationContextRef.current = ctx;

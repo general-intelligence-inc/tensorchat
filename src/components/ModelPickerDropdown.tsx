@@ -238,9 +238,8 @@ function ModelPickerDropdownComponent({
                     model.sizeGB,
                     getDeviceTotalMemoryBytes(),
                   ),
-                  modelSizeGB: model.sizeGB,
                 }
-              : { modelSizeGB: model.sizeGB };
+              : undefined;
           await loadModel(
             MODELS_DIR + model.filename,
             mmprojPath,

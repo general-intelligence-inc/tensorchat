@@ -2187,7 +2187,7 @@ export function ChatScreen({
           // stepping down to 12k or 8k on RAM-constrained devices to
           // avoid OOM kills. This uses the same 50%-of-RAM budget that
           // the model eligibility check in modelMemory.ts enforces.
-          let loadOptions: { contextSize?: number; modelSizeGB?: number } | undefined;
+          let loadOptions: { contextSize: number } | undefined;
           if (activeMode === "miniapp") {
             const deviceRam = getDeviceTotalMemoryBytes();
             const ctxSize = getMiniAppContextSize(
@@ -2202,9 +2202,7 @@ export function ChatScreen({
               "modelGB:",
               desiredModelSizeGB,
             );
-            loadOptions = { contextSize: ctxSize, modelSizeGB: desiredModelSizeGB };
-          } else if (desiredModelSizeGB != null) {
-            loadOptions = { modelSizeGB: desiredModelSizeGB };
+            loadOptions = { contextSize: ctxSize };
           }
           await llamaContextRef.current.loadModel(
             desiredModelPath,
@@ -2463,9 +2461,7 @@ export function ChatScreen({
         if (cancelled) {
           return;
         }
-        await loadModel(candidate.modelPath, candidate.mmprojPath, {
-          modelSizeGB: candidate.model.sizeGB,
-        });
+        await loadModel(candidate.modelPath, candidate.mmprojPath);
       } catch (err) {
         console.warn("[ChatScreen] Failed to auto-load downloaded model:", err);
       } finally {
