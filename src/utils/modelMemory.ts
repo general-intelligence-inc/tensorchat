@@ -112,14 +112,12 @@ export function buildOptimizedInitParams(opts: {
   cache_type_k?: string;
   cache_type_v?: string;
   flash_attn_type?: string;
-  n_gpu_layers?: number;
   use_mmap?: boolean;
 } {
   const params: {
     cache_type_k?: string;
     cache_type_v?: string;
     flash_attn_type?: string;
-    n_gpu_layers?: number;
     use_mmap?: boolean;
   } = {};
 
@@ -133,11 +131,12 @@ export function buildOptimizedInitParams(opts: {
   // Flash attention: let llama.cpp auto-detect support per architecture.
   params.flash_attn_type = "auto";
 
-  // iOS Metal GPU offload: offload all possible layers to reduce CPU RAM.
-  // Android GPU support is less reliable, so we omit it there.
-  if (opts.platform === "ios") {
-    params.n_gpu_layers = 99999;
-  }
+  // NOTE: n_gpu_layers is intentionally NOT set here. On Apple Silicon's
+  // unified memory architecture, setting n_gpu_layers causes the model
+  // weights to be malloc'd into Metal GPU buffers IN ADDITION to the
+  // mmap'd/loaded copy — effectively doubling memory usage. llama.rn
+  // handles Metal acceleration internally via ggml-metal without needing
+  // explicit layer offloading.
 
   // Memory mapping reduces peak RAM during model loading by lazily
   // paging model data instead of requiring contiguous allocation.
