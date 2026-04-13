@@ -287,9 +287,9 @@ export function MiniAppHome({
         >
           <Ionicons name="download-outline" size={16} color={colors.accent} />
           <View style={styles.bannerTextColumn}>
-            <Text style={styles.bannerTextBold}>Download Gemma 4 E2B</Text>
+            <Text style={styles.bannerTextBold}>Download a mini app model</Text>
             <Text style={styles.bannerText}>
-              Mini apps run on Gemma 4 E2B (IQ2 — around 2.3 GB). Tap to open the model catalog.
+              Download a Q4 model (around 2.7 GB) to start building. Tap to open the catalog.
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />

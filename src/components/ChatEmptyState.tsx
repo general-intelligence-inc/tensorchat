@@ -80,10 +80,10 @@ export function ChatEmptyState({
                   : "Choose a translation model to start translating"
               : mode === "miniapp"
                 ? isModelLoading
-                  ? "Loading Gemma 4 E2B for mini apps"
+                  ? "Loading model for mini apps"
                   : isModelReady
                     ? "Describe a mini app you want to build"
-                    : "Download Gemma 4 E2B to start building mini apps"
+                    : "Download a model to start building mini apps"
                 : "Loading chat model"
           }
           textColor={colors.textSecondary}

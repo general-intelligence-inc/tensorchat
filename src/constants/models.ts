@@ -1,8 +1,8 @@
-export type ChatQuantization = "Q3_K_M" | "Q4_K_M" | "Q8_0" | "BF16" | "UD_IQ2_M";
+export type ChatQuantization = "Q3_K_M" | "Q4_K_M" | "Q8_0" | "BF16" | "UD_IQ2_M" | "Q1_0";
 
 export type Quantization = ChatQuantization | "Q4_0";
 
-export type ChatBaseModel = "0.8B" | "2B" | "4B" | "350M" | "1.2B" | "E2B" | "N3-4B";
+export type ChatBaseModel = "0.8B" | "2B" | "4B" | "350M" | "1.2B" | "E2B" | "N3-4B" | "B-8B";
 export type AddonBaseModel = "embedding" | "translation";
 export type ModelCatalogTab =
   | ChatBaseModel
@@ -87,6 +87,7 @@ export const QUANTIZATION_DISPLAY_LABELS: Record<Quantization, string> = {
   Q8_0: "Q8",
   BF16: "BF16",
   UD_IQ2_M: "IQ2",
+  Q1_0: "1-bit",
   Q4_0: "Q4_0",
 };
 
@@ -96,6 +97,7 @@ export const QUANTIZATION_LABELS: Record<Quantization, string> = {
   Q8_0: "Q8 (best quality, largest)",
   BF16: "BF16 (full precision)",
   UD_IQ2_M: "IQ2 (smallest E2B option)",
+  Q1_0: "1-bit",
   Q4_0: "Q4_0",
 };
 
@@ -271,6 +273,11 @@ const THINKING_BUDGETS: Record<ChatBaseModel, ThinkingBudget> = {
     maxGenerationTokens: 2048,
     promptGuidance: THINKING_PROMPT_GUIDANCE,
   },
+  "B-8B": {
+    maxReasoningTokens: 500,
+    maxGenerationTokens: 2048,
+    promptGuidance: THINKING_PROMPT_GUIDANCE,
+  },
 };
 
 function buildModels(family: ChatModelFamilyDefinition): ModelConfig[] {
@@ -352,6 +359,29 @@ export const MODELS_E2B: ModelConfig[] = [
 
 export const MODELS_N3_4B: ModelConfig[] = buildModels(CHAT_MODEL_FAMILY_N3_4B);
 
+const BONSAI_8B_MODEL: ModelConfig = {
+  id: "B-8B-Q1_0",
+  name: "Bonsai 8B",
+  description: "PrismML Bonsai 8B, 1-bit quantized (1.15 GB)",
+  huggingFaceRepo: "prism-ml/Bonsai-8B-gguf",
+  filename: "Bonsai-8B.gguf",
+  downloadUrl:
+    "https://huggingface.co/prism-ml/Bonsai-8B-gguf/resolve/main/Bonsai-8B.gguf",
+  sizeGB: 1.15,
+  quantization: "Q1_0",
+  baseModel: "B-8B",
+  supportsThinking: false,
+  alwaysThinks: false,
+  nativeReasoning: false,
+  supportsToolCalling: true,
+  systemPromptTools: true,
+  isVisionModel: false,
+  catalogKind: "chat",
+  recommended: true,
+};
+
+export const MODELS_B_8B: ModelConfig[] = [BONSAI_8B_MODEL];
+
 /**
  * Models eligible for the Mini Apps builder. Tested end-to-end against
  * the full 21-scenario e2e suite (scripts/test-miniapp-e2e.ts) with
@@ -376,6 +406,8 @@ export const MINIAPP_MODELS: ModelConfig[] = [
   ...MODELS_E2B.filter((m) => m.quantization !== "UD_IQ2_M"),
   // Nemotron 3 Nano 4B
   ...MODELS_N3_4B,
+  // Bonsai 8B (PrismML) — 1-bit quantized, 1.15 GB
+  ...MODELS_B_8B,
 ];
 
 export const MODELS_350M: ModelConfig[] = buildModels(CHAT_MODEL_FAMILY_350M);
@@ -425,6 +457,12 @@ export const CHAT_MODEL_FAMILIES: ChatModelFamily[] = [
     subtitle: CHAT_MODEL_FAMILY_N3_4B.subtitle,
     models: MODELS_N3_4B,
   },
+  {
+    baseModel: "B-8B",
+    title: "Bonsai 8B",
+    subtitle: "PrismML 1-bit model",
+    models: MODELS_B_8B,
+  },
 ];
 
 const CHAT_MODELS_BY_BASE: Record<ChatBaseModel, ModelConfig[]> = {
@@ -435,6 +473,7 @@ const CHAT_MODELS_BY_BASE: Record<ChatBaseModel, ModelConfig[]> = {
   "4B": MODELS_4B,
   E2B: MODELS_E2B,
   "N3-4B": MODELS_N3_4B,
+  "B-8B": MODELS_B_8B,
 };
 
 export const ALL_MODELS: ModelConfig[] = [
@@ -445,6 +484,7 @@ export const ALL_MODELS: ModelConfig[] = [
   ...MODELS_4B,
   ...MODELS_E2B,
   ...MODELS_N3_4B,
+  ...MODELS_B_8B,
 ];
 
 export const EMBEDDING_MODEL_ID = "embedding-gemma-300m-q4_0";
@@ -595,7 +635,8 @@ function isChatBaseModel(
     baseModel === "2B" ||
     baseModel === "4B" ||
     baseModel === "E2B" ||
-    baseModel === "N3-4B"
+    baseModel === "N3-4B" ||
+    baseModel === "B-8B"
   );
 }
 
@@ -627,6 +668,8 @@ const GEMMA_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><
 
 const LIQUID_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.028 8.546l-.008.005 3.03 5.25a3.94 3.94 0 01.643 2.162c0 .754-.212 1.46-.58 2.062l6.173-1.991L11.63 0 9.304 3.872l2.724 4.674zM6.837 24l4.85-4.053h-.013c-2.219 0-4.017-1.784-4.017-3.984 0-.794.235-1.534.64-2.156l2.865-4.976-2.381-4.087L2 16.034 6.83 24h.007zM13.737 19.382h-.001L8.222 24h8.182l4.148-6.769-6.815 2.151z" fill="#00C2FF"/></svg>`;
 
+const PRISMML_SVG = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,200) scale(0.1,-0.1)" fill="#000000" stroke="none"><path d="M933 1958 c-11 -18 -225 -389 -476 -824 l-457 -791 0 -172 0 -171 475 0 c261 0 475 2 475 5 0 5 -159 283 -200 350 l-19 30 223 385 222 385 131 5 130 5 -234 405 c-129 223 -238 409 -242 413 -5 5 -17 -7 -28 -25z"/><path d="M1217 963 c-20 -38 -52 -96 -72 -130 l-35 -63 370 0 370 0 0 130 0 130 -298 0 -298 0 -37 -67z"/><path d="M989 568 c-24 -40 -55 -95 -71 -121 -15 -26 -28 -50 -28 -52 0 -3 250 -5 555 -5 l555 0 0 125 0 125 -485 0 -484 0 -42 -72z"/><path d="M979 223 c11 -21 44 -78 73 -128 l54 -90 437 -3 437 -2 0 130 0 130 -510 0 -510 0 19 -37z"/></g></svg>`;
+
 const NVIDIA_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M10.212 8.976V7.62c.127-.01.256-.017.388-.021 3.596-.117 5.957 3.184 5.957 3.184s-2.548 3.647-5.282 3.647a3.227 3.227 0 01-1.063-.175v-4.109c1.4.174 1.681.812 2.523 2.258l1.873-1.627a4.905 4.905 0 00-3.67-1.846 6.594 6.594 0 00-.729.044m0-4.476v2.025c.13-.01.259-.019.388-.024 5.002-.174 8.261 4.226 8.261 4.226s-3.743 4.69-7.643 4.69c-.338 0-.675-.031-1.007-.092v1.25c.278.038.558.057.838.057 3.629 0 6.253-1.91 8.794-4.169.421.347 2.146 1.193 2.501 1.564-2.416 2.083-8.048 3.763-11.24 3.763-.308 0-.603-.02-.894-.048V19.5H24v-15H10.21zm0 9.756v1.068c-3.356-.616-4.287-4.21-4.287-4.21a7.173 7.173 0 014.287-2.138v1.172h-.005a3.182 3.182 0 00-2.502 1.178s.615 2.276 2.507 2.931m-5.961-3.3c1.436-1.935 3.604-3.148 5.961-3.336V6.523C5.81 6.887 2 10.723 2 10.723s2.158 6.427 8.21 7.015v-1.166C5.77 16 4.25 10.958 4.25 10.958h-.002z" fill="#74B71B" fill-rule="nonzero"/></svg>`;
 
 export interface ModelBrandBadge {
@@ -649,6 +692,8 @@ export function getModelBrandBadge(baseModel: string): ModelBrandBadge {
       return { letter: "L", color: "#00C2FF", svg: LIQUID_SVG };
     case "N3-4B":
       return { letter: "N", color: "#74B71B", svg: NVIDIA_SVG };
+    case "B-8B":
+      return { letter: "P", color: "#000000", svg: PRISMML_SVG };
     case "translation":
       return { letter: "T", color: "#10A37F" };
     default:

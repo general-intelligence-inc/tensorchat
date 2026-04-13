@@ -50,11 +50,12 @@ Always treat `app.json` and `package.json` as canonical for runtime/platform fac
 
 ### Current model matrix
 
-- Chat model families: Qwen3.5 (`0.8B`, `2B`, `4B`), Gemma 4 E2B, LFM2.5 (`350M`, `1.2B`)
-- Quantizations currently supported: `Q3_K_M`, `Q4_K_M`, `Q8_0`, `BF16`, `UD_IQ2_M`
+- Chat model families: Qwen3.5 (`0.8B`, `2B`, `4B`), Gemma 4 E2B, Nemotron 3 Nano (`4B`), Bonsai 8B, LFM2.5 (`350M`, `1.2B`)
+- Quantizations currently supported: `Q3_K_M`, `Q4_K_M`, `Q8_0`, `BF16`, `UD_IQ2_M`, `Q1_0`
 - Vision models include `mmproj` sidecar handling
 - Gemma 4 E2B has `nativeReasoning: true` (uses native reasoning tokens, not `<think>` tags)
-- Mini-app eligible models: Qwen 3.5 4B Q4_K_M (95% e2e), Gemma 4 E2B Q4_K_M (76% e2e) — IQ2_M excluded (too unreliable)
+- Nemotron 3 Nano and Bonsai 8B use `systemPromptTools: true` (tool definitions via system prompt, not GBNF grammar)
+- Mini-app eligible models: Qwen 3.5 4B Q4_K_M (95% e2e), Gemma 4 E2B Q4_K_M (76% e2e), Nemotron 3 Nano, Bonsai 8B
 - Embedding model: EmbeddingGemma 300M (Q4_0) for File Vault
 - Translation models: EuroLLM 1.7B Q4, TranslateGemma 4B Q3
 - Model metadata is generated via `buildModels()` in `src/constants/models.ts`
