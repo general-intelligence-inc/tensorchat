@@ -620,7 +620,9 @@ function normalizeLoadedMessage(rawMessage: Message): Message {
   return {
     ...rawMessage,
     attachedSources,
-    // TTS advisory is transient UI state and should not survive reload.
+    // Streaming and TTS advisory are transient UI state — no generation
+    // context exists after a reload so these must be cleared.
+    isStreaming: false,
     ttsAdvisory: undefined,
     webSearchAdvisory:
       typeof partialMessage.webSearchAdvisory === "string"
