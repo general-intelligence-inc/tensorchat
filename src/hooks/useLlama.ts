@@ -592,6 +592,15 @@ export function useLlama(): UseLlamaReturn {
         return false;
       }
 
+      // Reject concurrent loads — only one loadModel or loadTranslationModel
+      // may be in-flight at a time. Without this guard, App.tsx startup and
+      // ChatScreen auto-load effects can race, creating duplicate native
+      // contexts that double memory usage and crash the app.
+      if (contextBusyRef.current) {
+        console.warn("[LLM] loadModel skipped — another load is in progress");
+        return false;
+      }
+
       setIsLoading(true);
       setError(null);
       // Mark context busy BEFORE releasing anything so a racing
@@ -701,6 +710,11 @@ export function useLlama(): UseLlamaReturn {
   const loadTranslationModel = useCallback(async (modelPath: string) => {
     if (!initLlama) {
       setTranslationError("llama.rn is not available on this platform");
+      return false;
+    }
+
+    if (contextBusyRef.current) {
+      console.warn("[LLM] loadTranslationModel skipped — another load is in progress");
       return false;
     }
 
