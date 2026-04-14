@@ -69,6 +69,8 @@ export interface HarnessOptions {
   nativeReasoning?: boolean;
   /** Route tool definitions via system prompt instead of GBNF grammar. */
   systemPromptTools?: boolean;
+  /** Model always emits <think> tags regardless of settings. */
+  alwaysThinks?: boolean;
 }
 
 /**
@@ -417,6 +419,7 @@ export async function runMiniAppHarness(
     promptTokenBudget = DEFAULT_PROMPT_TOKEN_BUDGET,
     nativeReasoning = false,
     systemPromptTools = false,
+    alwaysThinks = false,
   } = opts;
 
   const startedAt = Date.now();
@@ -597,6 +600,7 @@ export async function runMiniAppHarness(
       dropPatchTool: bothPatchFailures,
       nativeReasoning,
       systemPromptTools,
+      alwaysThinks,
     });
 
     if (attemptResult.kind === "cancelled") {
@@ -991,6 +995,8 @@ async function runSingleAttempt(params: {
   nativeReasoning?: boolean;
   /** Route tool definitions via system prompt instead of GBNF grammar. */
   systemPromptTools?: boolean;
+  /** Model always emits <think> tags regardless of settings. */
+  alwaysThinks?: boolean;
 }): Promise<AttemptOutcome> {
   const {
     attempt,
@@ -1007,6 +1013,7 @@ async function runSingleAttempt(params: {
     dropPatchTool = false,
     nativeReasoning = false,
     systemPromptTools = false,
+    alwaysThinks = false,
   } = params;
 
   let writtenApp: MiniApp | null = null;
@@ -1144,7 +1151,7 @@ async function runSingleAttempt(params: {
     tools,
     maxIterations: 1,
     thinking: false,
-    alwaysThinks: false,
+    alwaysThinks,
     systemPromptTools,
     nativeReasoning,
     maxGenerationTokens: MINIAPP_MAX_GENERATION_TOKENS,

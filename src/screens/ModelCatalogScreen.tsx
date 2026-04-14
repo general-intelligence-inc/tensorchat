@@ -79,9 +79,10 @@ function ModelBrandIcon({
   baseModel: string;
   size: number;
 }): React.JSX.Element {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const badge = getModelBrandBadge(baseModel);
   if (badge.svg) {
+    const svgXml = scheme === "dark" && badge.darkSvg ? badge.darkSvg : badge.svg;
     return (
       <View
         style={{
@@ -94,7 +95,7 @@ function ModelBrandIcon({
           overflow: "hidden",
         }}
       >
-        <SvgXml xml={badge.svg} width={size * 0.65} height={size * 0.65} />
+        <SvgXml xml={svgXml} width={size * 0.65} height={size * 0.65} />
       </View>
     );
   }

@@ -453,6 +453,10 @@ function buildMessageFormattingParams(
   enable_thinking: boolean;
   reasoning_format: "none" | "auto";
   chat_template_kwargs?: Record<string, string | boolean | number>;
+  thinking_budget_tokens?: number;
+  thinking_forced_open?: boolean;
+  thinking_start_tag?: string;
+  thinking_end_tag?: string;
   tools?: LlamaToolDefinition[];
   tool_choice?: string;
   parallel_tool_calls?: boolean;
@@ -493,6 +497,19 @@ function buildMessageFormattingParams(
     ...(enableThinking || nativeReasoning
       ? {}
       : { chat_template_kwargs: { enable_thinking: false } }),
+    // For models that always emit <think> tags regardless of template
+    // settings, enforce a zero-token thinking budget so the runtime
+    // forces the thinking block closed immediately. Equivalent to
+    // llama.cpp --reasoning-budget 0. The C++ layer requires
+    // thinking_end_tag to be set for the budget to take effect.
+    ...(alwaysThinks && !enableThinking
+      ? {
+          thinking_budget_tokens: 0,
+          thinking_forced_open: true,
+          thinking_start_tag: "<think>",
+          thinking_end_tag: "</think>",
+        }
+      : {}),
     // Models with nativeReasoning (e.g. Gemma 4) or alwaysThinks (e.g. LFM
     // 1.2B Thinking) handle thinking via their template natively — using
     // reasoning_format "auto" would generate a GBNF grammar that conflicts
@@ -1196,18 +1213,48 @@ export function useLlama(): UseLlamaReturn {
             )
           : null;
         const needsReasoningFormat = thinking || alwaysThinks;
-        const completionInput = isMessages
-          ? {
-              messages: promptOrMessages as StructuredMessages,
-              ...messageFormattingParams,
-            }
-          : {
-              prompt: promptOrMessages as string,
-              enable_thinking: needsReasoningFormat,
-              reasoning_format: needsReasoningFormat ? ("auto" as const) : ("none" as const),
-            };
+        // For alwaysThinks models with thinking suppressed, pre-format the
+        // chat and append </think>\n to close the template's <think> block.
+        // The template ignores enable_thinking:false and always opens a
+        // <think> block — closing it immediately forces the model to skip
+        // reasoning and generate the response directly.
+        const suppressThinkByPrompt = isMessages && alwaysThinks && !thinking;
+        let completionInput: Record<string, unknown>;
 
-        if (isMessages && messageFormattingParams) {
+        if (suppressThinkByPrompt && messageFormattingParams) {
+          const formattedChat = await contextRef.current.getFormattedChat(
+            promptOrMessages as StructuredMessages,
+            null,
+            messageFormattingParams,
+          );
+          let prompt = formattedChat.prompt || "";
+          if (prompt.endsWith("<think>\n")) {
+            prompt += "</think>\n";
+          }
+          console.log("[LLM] formatted prompt (think-suppressed):\n" + prompt);
+          completionInput = {
+            prompt,
+            // Carry over grammar/stops from jinja formatting
+            ...(formattedChat.grammar ? { grammar: formattedChat.grammar } : {}),
+            ...(formattedChat.grammar_lazy != null ? { grammar_lazy: formattedChat.grammar_lazy } : {}),
+            ...(formattedChat.grammar_triggers ? { grammar_triggers: formattedChat.grammar_triggers } : {}),
+            ...(formattedChat.preserved_tokens ? { preserved_tokens: formattedChat.preserved_tokens } : {}),
+            ...(formattedChat.additional_stops ? { stop: formattedChat.additional_stops } : {}),
+          };
+        } else if (isMessages) {
+          completionInput = {
+            messages: promptOrMessages as StructuredMessages,
+            ...messageFormattingParams,
+          };
+        } else {
+          completionInput = {
+            prompt: promptOrMessages as string,
+            enable_thinking: needsReasoningFormat,
+            reasoning_format: needsReasoningFormat ? ("auto" as const) : ("none" as const),
+          };
+        }
+
+        if (isMessages && messageFormattingParams && !suppressThinkByPrompt) {
           try {
             const formattedChat = await contextRef.current.getFormattedChat(
               promptOrMessages as StructuredMessages,
@@ -1237,7 +1284,7 @@ export function useLlama(): UseLlamaReturn {
               JSON.stringify(completionInput).slice(0, 500),
             );
           }
-        } else {
+        } else if (!isMessages) {
           console.log("[LLM] formatted prompt:\n" + (promptOrMessages as string));
         }
 

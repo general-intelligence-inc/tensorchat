@@ -370,8 +370,8 @@ const BONSAI_8B_MODEL: ModelConfig = {
   sizeGB: 1.15,
   quantization: "Q1_0",
   baseModel: "B-8B",
-  supportsThinking: false,
-  alwaysThinks: false,
+  supportsThinking: true,
+  alwaysThinks: true,
   nativeReasoning: false,
   supportsToolCalling: true,
   systemPromptTools: true,
@@ -383,31 +383,15 @@ const BONSAI_8B_MODEL: ModelConfig = {
 export const MODELS_B_8B: ModelConfig[] = [BONSAI_8B_MODEL];
 
 /**
- * Models eligible for the Mini Apps builder. Tested end-to-end against
- * the full 21-scenario e2e suite (scripts/test-miniapp-e2e.ts) with
- * thinking OFF (matching the production 16k context budget):
+ * Models eligible for the Mini Apps builder.
  *
- *   Qwen 3.5 4B Q4_K_M — 20/21 (95%)  ← best without thinking
- *   Gemma 4 E2B Q4_K_M — 16/21 (76%)
- *   Gemma 4 E2B IQ2_M  — excluded, too unreliable for mini-app generation
- *   Qwen 3.5 2B Q4_K_M — 12/21 (57%)  ← excluded, too unreliable
- *
- * Order matters: the first model the user has downloaded becomes the
- * preferred fallback via `findPreferredLoadableMiniAppModelCandidate`.
- * Qwen 4B Q4 is listed first (best quality), followed by E2B Q4_K_M.
+ * Currently only Qwen 3.5 4B Q4_K_M — 20/21 (95%) on the e2e suite
+ * with thinking OFF. Other models (Gemma E2B, Nemotron, Bonsai) had
+ * reliability issues with tool calling or context budget during
+ * mini-app generation.
  */
 export const MINIAPP_MODELS: ModelConfig[] = [
-  // Qwen 3.5 4B — highest success rate without thinking mode.
-  // Only Q4_K_M (2.74 GB) — Q3_K_M showed no difference in our eval
-  // and the user already has the Q4 downloaded in most cases.
   ...MODELS_4B.filter((m) => m.quantization === "Q4_K_M"),
-  // Gemma 4 E2B Q4_K_M only — IQ2_M is too unreliable for mini-app
-  // generation (produces malformed tool calls and truncated programs).
-  ...MODELS_E2B.filter((m) => m.quantization !== "UD_IQ2_M"),
-  // Nemotron 3 Nano 4B
-  ...MODELS_N3_4B,
-  // Bonsai 8B (PrismML) — 1-bit quantized, 1.15 GB
-  ...MODELS_B_8B,
 ];
 
 export const MODELS_350M: ModelConfig[] = buildModels(CHAT_MODEL_FAMILY_350M);
@@ -668,6 +652,8 @@ const GEMMA_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><
 
 const LIQUID_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.028 8.546l-.008.005 3.03 5.25a3.94 3.94 0 01.643 2.162c0 .754-.212 1.46-.58 2.062l6.173-1.991L11.63 0 9.304 3.872l2.724 4.674zM6.837 24l4.85-4.053h-.013c-2.219 0-4.017-1.784-4.017-3.984 0-.794.235-1.534.64-2.156l2.865-4.976-2.381-4.087L2 16.034 6.83 24h.007zM13.737 19.382h-.001L8.222 24h8.182l4.148-6.769-6.815 2.151z" fill="#00C2FF"/></svg>`;
 
+const PRISMML_SVG_DARK = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,200) scale(0.1,-0.1)" fill="#FFFFFF" stroke="none"><path d="M933 1958 c-11 -18 -225 -389 -476 -824 l-457 -791 0 -172 0 -171 475 0 c261 0 475 2 475 5 0 5 -159 283 -200 350 l-19 30 223 385 222 385 131 5 130 5 -234 405 c-129 223 -238 409 -242 413 -5 5 -17 -7 -28 -25z"/><path d="M1217 963 c-20 -38 -52 -96 -72 -130 l-35 -63 370 0 370 0 0 130 0 130 -298 0 -298 0 -37 -67z"/><path d="M989 568 c-24 -40 -55 -95 -71 -121 -15 -26 -28 -50 -28 -52 0 -3 250 -5 555 -5 l555 0 0 125 0 125 -485 0 -484 0 -42 -72z"/><path d="M979 223 c11 -21 44 -78 73 -128 l54 -90 437 -3 437 -2 0 130 0 130 -510 0 -510 0 19 -37z"/></g></svg>`;
+
 const PRISMML_SVG = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,200) scale(0.1,-0.1)" fill="#000000" stroke="none"><path d="M933 1958 c-11 -18 -225 -389 -476 -824 l-457 -791 0 -172 0 -171 475 0 c261 0 475 2 475 5 0 5 -159 283 -200 350 l-19 30 223 385 222 385 131 5 130 5 -234 405 c-129 223 -238 409 -242 413 -5 5 -17 -7 -28 -25z"/><path d="M1217 963 c-20 -38 -52 -96 -72 -130 l-35 -63 370 0 370 0 0 130 0 130 -298 0 -298 0 -37 -67z"/><path d="M989 568 c-24 -40 -55 -95 -71 -121 -15 -26 -28 -50 -28 -52 0 -3 250 -5 555 -5 l555 0 0 125 0 125 -485 0 -484 0 -42 -72z"/><path d="M979 223 c11 -21 44 -78 73 -128 l54 -90 437 -3 437 -2 0 130 0 130 -510 0 -510 0 19 -37z"/></g></svg>`;
 
 const NVIDIA_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M10.212 8.976V7.62c.127-.01.256-.017.388-.021 3.596-.117 5.957 3.184 5.957 3.184s-2.548 3.647-5.282 3.647a3.227 3.227 0 01-1.063-.175v-4.109c1.4.174 1.681.812 2.523 2.258l1.873-1.627a4.905 4.905 0 00-3.67-1.846 6.594 6.594 0 00-.729.044m0-4.476v2.025c.13-.01.259-.019.388-.024 5.002-.174 8.261 4.226 8.261 4.226s-3.743 4.69-7.643 4.69c-.338 0-.675-.031-1.007-.092v1.25c.278.038.558.057.838.057 3.629 0 6.253-1.91 8.794-4.169.421.347 2.146 1.193 2.501 1.564-2.416 2.083-8.048 3.763-11.24 3.763-.308 0-.603-.02-.894-.048V19.5H24v-15H10.21zm0 9.756v1.068c-3.356-.616-4.287-4.21-4.287-4.21a7.173 7.173 0 014.287-2.138v1.172h-.005a3.182 3.182 0 00-2.502 1.178s.615 2.276 2.507 2.931m-5.961-3.3c1.436-1.935 3.604-3.148 5.961-3.336V6.523C5.81 6.887 2 10.723 2 10.723s2.158 6.427 8.21 7.015v-1.166C5.77 16 4.25 10.958 4.25 10.958h-.002z" fill="#74B71B" fill-rule="nonzero"/></svg>`;
@@ -676,6 +662,7 @@ export interface ModelBrandBadge {
   letter: string;
   color: string;
   svg?: string;
+  darkSvg?: string;
 }
 
 export function getModelBrandBadge(baseModel: string): ModelBrandBadge {
@@ -693,7 +680,7 @@ export function getModelBrandBadge(baseModel: string): ModelBrandBadge {
     case "N3-4B":
       return { letter: "N", color: "#74B71B", svg: NVIDIA_SVG };
     case "B-8B":
-      return { letter: "P", color: "#000000", svg: PRISMML_SVG };
+      return { letter: "P", color: "#000000", svg: PRISMML_SVG, darkSvg: PRISMML_SVG_DARK };
     case "translation":
       return { letter: "T", color: "#10A37F" };
     default:

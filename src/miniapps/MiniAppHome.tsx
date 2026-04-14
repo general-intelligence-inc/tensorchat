@@ -289,7 +289,7 @@ export function MiniAppHome({
           <View style={styles.bannerTextColumn}>
             <Text style={styles.bannerTextBold}>Download a mini app model</Text>
             <Text style={styles.bannerText}>
-              Download a Q4 model (around 2.7 GB) to start building. Tap to open the catalog.
+              Download a supported model to start building. Tap to open the catalog.
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />

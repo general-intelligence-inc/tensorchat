@@ -4763,6 +4763,7 @@ export function ChatScreen({
           identity,
           nativeReasoning: currentModel?.nativeReasoning ?? false,
           systemPromptTools: currentModel?.systemPromptTools ?? false,
+          alwaysThinks: currentModel?.alwaysThinks ?? false,
           onStatusChange: (status) => {
             // Translate harness status into the existing UI state shape.
             // The harness now emits fine-grained generating phases
