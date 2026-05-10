@@ -38,7 +38,7 @@ export interface ChatSummary {
   id: string;
   title: string;
   createdAt: number;
-  mode?: "chat" | "translation" | "miniapp";
+  mode?: "chat" | "translation" | "miniapp" | "imagegen";
 }
 
 const THREAD_ACTIONS_WIDTH = 96;
@@ -57,10 +57,11 @@ interface SidebarProps {
   onOpenFileVault: () => void;
   onOpenTranslation: () => void;
   onOpenMiniApps?: () => void;
+  onOpenImageGen?: () => void;
   onOpenModelCatalog: () => void;
   onManageModels: () => void;
   onDeleteAllChats: () => void;
-  activeMode: "chat" | "translation" | "miniapp";
+  activeMode: "chat" | "translation" | "miniapp" | "imagegen";
   onClose: () => void;
 }
 
@@ -357,6 +358,7 @@ function SidebarComponent({
   onOpenFileVault,
   onOpenTranslation,
   onOpenMiniApps,
+  onOpenImageGen,
   onOpenModelCatalog,
   onManageModels,
   onDeleteAllChats,
@@ -546,6 +548,40 @@ function SidebarComponent({
               ]}
             >
               Mini Apps
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {onOpenImageGen ? (
+          <TouchableOpacity
+            style={[
+              styles.navRow,
+              activeMode === "imagegen" && styles.navRowActive,
+            ]}
+            onPress={() => {
+              onOpenImageGen();
+              onClose();
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.navIcon}>
+              <Ionicons
+                name="images-outline"
+                size={20}
+                color={
+                  activeMode === "imagegen"
+                    ? colors.accent
+                    : colors.textSecondary
+                }
+              />
+            </View>
+            <Text
+              style={[
+                styles.navRowText,
+                activeMode === "imagegen" && styles.navRowTextActive,
+              ]}
+            >
+              Image Gen
             </Text>
           </TouchableOpacity>
         ) : null}

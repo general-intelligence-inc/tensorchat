@@ -3,14 +3,32 @@ export type ChatQuantization = "Q3_K_M" | "Q4_K_M" | "Q8_0" | "BF16" | "UD_IQ2_M
 export type Quantization = ChatQuantization | "Q4_0";
 
 export type ChatBaseModel = "0.8B" | "2B" | "4B" | "350M" | "1.2B" | "E2B" | "N3-4B" | "B-8B";
-export type AddonBaseModel = "embedding" | "translation";
+export type AddonBaseModel = "embedding" | "translation" | "imagegen";
 export type ModelCatalogTab =
   | ChatBaseModel
   | "embedding"
   | "translation"
+  | "imagegen"
   | "voice"
   | "downloaded";
-export type ModelCatalogKind = "chat" | "embedding" | "translation";
+export type ModelCatalogKind = "chat" | "embedding" | "translation" | "imagegen";
+
+export type ImageAssetKind =
+  | "unet"
+  | "vae"
+  | "clip"
+  | "text-encoder"
+  | "tokenizer"
+  | "scheduler"
+  | "lora"
+  | "extra";
+
+export interface ImageAssetFile {
+  kind: ImageAssetKind;
+  filename: string;
+  url: string;
+  sizeGB: number;
+}
 
 interface ChatModelDefinition {
   quantization: ChatQuantization;
@@ -67,6 +85,14 @@ export interface ModelConfig {
   mmprojFilename?: string;
   mmprojUrl?: string;
   mmprojSizeGB?: number;
+  /**
+   * Optional list of additional asset files belonging to this model.
+   * Used by image-generation diffusion models, which ship as multiple
+   * weight files (UNet, VAE, text encoder, tokenizer). For chat and
+   * embedding models this is undefined and the existing `filename` /
+   * `mmprojFilename` fields cover the download.
+   */
+  assetFiles?: ImageAssetFile[];
 }
 
 export interface ThinkingBudget {
@@ -563,10 +589,107 @@ export const TRANSLATION_MODELS: ModelConfig[] = [
 
 export const DEFAULT_TRANSLATION_MODEL_ID = TRANSLATION_MODELS[0].id;
 export const DEFAULT_TRANSLATION_MODEL = TRANSLATION_MODELS[0];
+
+// ---------------------------------------------------------------------------
+// Image generation models — runs in ONNX Runtime (`onnxruntime-react-native`,
+// already a dependency for EmbeddingGemma + Kokoro TTS). The diffusion
+// sampler loop lives in TypeScript under `src/imagegen/`. Each entry's
+// `filename` is the primary UNet ONNX shell; `assetFiles` lists the sidecars
+// (UNet external weights blob, VAE decoder, text encoder, tokenizer files).
+// ---------------------------------------------------------------------------
+
+export const SD_15_ONNX_MODEL_ID = "imagegen-sd15-onnx-fp16";
+const SD_15_ONNX_REPO = "nmkd/stable-diffusion-1.5-onnx-fp16";
+const SD_15_ONNX_BASE_URL =
+  `https://huggingface.co/${SD_15_ONNX_REPO}/resolve/main`;
+
+export const SD_15_ONNX_MODEL: ModelConfig = {
+  id: SD_15_ONNX_MODEL_ID,
+  name: "Stable Diffusion 1.5",
+  description: "Text-to-image",
+  huggingFaceRepo: SD_15_ONNX_REPO,
+  // Primary file is the ONNX graph for the UNet. Its weights live in the
+  // sibling `weights.pb` external-data file, listed in `assetFiles`.
+  filename: "sd15-onnx/unet/model.onnx",
+  downloadUrl: `${SD_15_ONNX_BASE_URL}/unet/model.onnx`,
+  sizeGB: 0.0012,
+  quantization: "BF16",
+  baseModel: "imagegen",
+  supportsThinking: false,
+  alwaysThinks: false,
+  nativeReasoning: false,
+  supportsToolCalling: false,
+  systemPromptTools: false,
+  isVisionModel: false,
+  catalogKind: "imagegen",
+  recommended: true,
+  assetFiles: [
+    // UNet external weights — must sit next to model.onnx. Bulk of the size.
+    {
+      kind: "extra",
+      filename: "sd15-onnx/unet/weights.pb",
+      url: `${SD_15_ONNX_BASE_URL}/unet/weights.pb`,
+      sizeGB: 1.72,
+    },
+    // VAE decoder — converts denoised latents to RGB pixels.
+    {
+      kind: "vae",
+      filename: "sd15-onnx/vae_decoder/model.onnx",
+      url: `${SD_15_ONNX_BASE_URL}/vae_decoder/model.onnx`,
+      sizeGB: 0.10,
+    },
+    // CLIP-ViT-L/14 text encoder.
+    {
+      kind: "text-encoder",
+      filename: "sd15-onnx/text_encoder/model.onnx",
+      url: `${SD_15_ONNX_BASE_URL}/text_encoder/model.onnx`,
+      sizeGB: 0.247,
+    },
+    // CLIP BPE tokenizer (older two-file format: vocab.json + merges.txt).
+    {
+      kind: "tokenizer",
+      filename: "sd15-onnx/tokenizer/vocab.json",
+      url: `${SD_15_ONNX_BASE_URL}/tokenizer/vocab.json`,
+      sizeGB: 0.0011,
+    },
+    {
+      kind: "tokenizer",
+      filename: "sd15-onnx/tokenizer/merges.txt",
+      url: `${SD_15_ONNX_BASE_URL}/tokenizer/merges.txt`,
+      sizeGB: 0.0006,
+    },
+    {
+      kind: "tokenizer",
+      filename: "sd15-onnx/tokenizer/tokenizer_config.json",
+      url: `${SD_15_ONNX_BASE_URL}/tokenizer/tokenizer_config.json`,
+      sizeGB: 0.0001,
+    },
+    {
+      kind: "tokenizer",
+      filename: "sd15-onnx/tokenizer/special_tokens_map.json",
+      url: `${SD_15_ONNX_BASE_URL}/tokenizer/special_tokens_map.json`,
+      sizeGB: 0.0001,
+    },
+    // Scheduler config — used by the TS DDIM scheduler to pick alphas.
+    {
+      kind: "scheduler",
+      filename: "sd15-onnx/scheduler/scheduler_config.json",
+      url: `${SD_15_ONNX_BASE_URL}/scheduler/scheduler_config.json`,
+      sizeGB: 0.0001,
+    },
+  ],
+};
+
+export const IMAGE_GEN_MODELS: ModelConfig[] = [SD_15_ONNX_MODEL];
+
+export const DEFAULT_IMAGE_GEN_MODEL_ID = SD_15_ONNX_MODEL.id;
+export const DEFAULT_IMAGE_GEN_MODEL = SD_15_ONNX_MODEL;
+
 export const CATALOG_MODELS: ModelConfig[] = [
   ...ALL_MODELS,
   ...EMBEDDING_MODELS,
   ...TRANSLATION_MODELS,
+  ...IMAGE_GEN_MODELS,
 ];
 
 export const DEFAULT_THINKING_BUDGET: ThinkingBudget = THINKING_BUDGETS["0.8B"];
@@ -587,6 +710,43 @@ export function getCatalogModelById(id: string): ModelConfig | undefined {
 
 export function getTranslationModelById(id: string): ModelConfig | undefined {
   return TRANSLATION_MODELS.find((model) => model.id === id);
+}
+
+export function getImageGenModelById(id: string): ModelConfig | undefined {
+  return IMAGE_GEN_MODELS.find((model) => model.id === id);
+}
+
+export function isImageGenModel(model: ModelConfig | null | undefined): boolean {
+  return !!model && model.catalogKind === "imagegen";
+}
+
+/**
+ * Returns the on-disk asset file list for a model, in the order downloads
+ * should run. The primary weight file (`filename` / `downloadUrl`) is first,
+ * followed by mmproj if present, then any `assetFiles`. Used by the
+ * download manager to drive a single weighted-progress loop.
+ */
+export function listModelAssetFiles(model: ModelConfig): ImageAssetFile[] {
+  const files: ImageAssetFile[] = [
+    {
+      kind: model.catalogKind === "imagegen" ? "unet" : "extra",
+      filename: model.filename,
+      url: model.downloadUrl,
+      sizeGB: model.sizeGB,
+    },
+  ];
+  if (model.mmprojFilename && model.mmprojUrl && model.mmprojSizeGB) {
+    files.push({
+      kind: "extra",
+      filename: model.mmprojFilename,
+      url: model.mmprojUrl,
+      sizeGB: model.mmprojSizeGB,
+    });
+  }
+  if (model.assetFiles?.length) {
+    files.push(...model.assetFiles);
+  }
+  return files;
 }
 
 export function getTranslationModelByPath(
@@ -642,7 +802,13 @@ export function isLikelyCompleteModelFile(
   }
 
   const minExpectedBytes = expectedBytes * MIN_VALID_SIZE_RATIO;
-  const threshold = Math.max(MIN_MODEL_FILE_BYTES, minExpectedBytes);
+  // Apply the 32 MB floor only when the declared size is itself >= 32 MB.
+  // GGUF chat models satisfy that; ONNX diffusion-graph shells do not (the
+  // primary file is a 1-2 MB graph with weights in `weights.pb` sidecar).
+  // For small declared sizes, fall back to a 75%-of-declared check only.
+  const threshold = expectedBytes >= MIN_MODEL_FILE_BYTES
+    ? Math.max(MIN_MODEL_FILE_BYTES, minExpectedBytes)
+    : Math.max(256, minExpectedBytes);
   return actualBytes >= threshold;
 }
 
@@ -657,6 +823,11 @@ const PRISMML_SVG_DARK = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/20
 const PRISMML_SVG = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,200) scale(0.1,-0.1)" fill="#000000" stroke="none"><path d="M933 1958 c-11 -18 -225 -389 -476 -824 l-457 -791 0 -172 0 -171 475 0 c261 0 475 2 475 5 0 5 -159 283 -200 350 l-19 30 223 385 222 385 131 5 130 5 -234 405 c-129 223 -238 409 -242 413 -5 5 -17 -7 -28 -25z"/><path d="M1217 963 c-20 -38 -52 -96 -72 -130 l-35 -63 370 0 370 0 0 130 0 130 -298 0 -298 0 -37 -67z"/><path d="M989 568 c-24 -40 -55 -95 -71 -121 -15 -26 -28 -50 -28 -52 0 -3 250 -5 555 -5 l555 0 0 125 0 125 -485 0 -484 0 -42 -72z"/><path d="M979 223 c11 -21 44 -78 73 -128 l54 -90 437 -3 437 -2 0 130 0 130 -510 0 -510 0 19 -37z"/></g></svg>`;
 
 const NVIDIA_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M10.212 8.976V7.62c.127-.01.256-.017.388-.021 3.596-.117 5.957 3.184 5.957 3.184s-2.548 3.647-5.282 3.647a3.227 3.227 0 01-1.063-.175v-4.109c1.4.174 1.681.812 2.523 2.258l1.873-1.627a4.905 4.905 0 00-3.67-1.846 6.594 6.594 0 00-.729.044m0-4.476v2.025c.13-.01.259-.019.388-.024 5.002-.174 8.261 4.226 8.261 4.226s-3.743 4.69-7.643 4.69c-.338 0-.675-.031-1.007-.092v1.25c.278.038.558.057.838.057 3.629 0 6.253-1.91 8.794-4.169.421.347 2.146 1.193 2.501 1.564-2.416 2.083-8.048 3.763-11.24 3.763-.308 0-.603-.02-.894-.048V19.5H24v-15H10.21zm0 9.756v1.068c-3.356-.616-4.287-4.21-4.287-4.21a7.173 7.173 0 014.287-2.138v1.172h-.005a3.182 3.182 0 00-2.502 1.178s.615 2.276 2.507 2.931m-5.961-3.3c1.436-1.935 3.604-3.148 5.961-3.336V6.523C5.81 6.887 2 10.723 2 10.723s2.158 6.427 8.21 7.015v-1.166C5.77 16 4.25 10.958 4.25 10.958h-.002z" fill="#74B71B" fill-rule="nonzero"/></svg>`;
+
+// Runway logo — fill `#000000` for light mode, `#FFFFFF` darkSvg for dark mode.
+// Source: assets/runway.svg (originally fill="currentColor", inlined here with explicit fills).
+const RUNWAY_SVG = `<svg fill="#000000" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17.86 22.992c-2.669.245-4.887-2.876-6.597-4.454C10.398 24.759 1 24.177 1 17.86V6.15c0-.921.244-1.861.733-2.65C2.635 1.977 4.383.98 6.15 1h11.71c6.316 0 6.918 9.398.677 10.243l2.97 2.951c3.252 3.064.808 8.929-3.646 8.797zm-1.428-3.721c1.842 1.898 4.774-1.034 2.876-2.876l-5.132-5.132H11.3v2.876l4.436 4.436.696.696zM4.12 17.842c-.037 2.632 4.117 2.632 4.06 0V6.132c.038-1.316-1.353-2.35-2.612-1.955-.057.019-.113.037-.15.056-.79.301-1.335 1.09-1.317 1.936v11.673h.02zm13.74-9.68c2.632.037 2.632-4.098 0-4.06h-6.973c.526 1.109.395 2.857.413 4.06h6.56z"/></svg>`;
+const RUNWAY_SVG_DARK = `<svg fill="#FFFFFF" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17.86 22.992c-2.669.245-4.887-2.876-6.597-4.454C10.398 24.759 1 24.177 1 17.86V6.15c0-.921.244-1.861.733-2.65C2.635 1.977 4.383.98 6.15 1h11.71c6.316 0 6.918 9.398.677 10.243l2.97 2.951c3.252 3.064.808 8.929-3.646 8.797zm-1.428-3.721c1.842 1.898 4.774-1.034 2.876-2.876l-5.132-5.132H11.3v2.876l4.436 4.436.696.696zM4.12 17.842c-.037 2.632 4.117 2.632 4.06 0V6.132c.038-1.316-1.353-2.35-2.612-1.955-.057.019-.113.037-.15.056-.79.301-1.335 1.09-1.317 1.936v11.673h.02zm13.74-9.68c2.632.037 2.632-4.098 0-4.06h-6.973c.526 1.109.395 2.857.413 4.06h6.56z"/></svg>`;
 
 export interface ModelBrandBadge {
   letter: string;
@@ -683,6 +854,13 @@ export function getModelBrandBadge(baseModel: string): ModelBrandBadge {
       return { letter: "P", color: "#000000", svg: PRISMML_SVG, darkSvg: PRISMML_SVG_DARK };
     case "translation":
       return { letter: "T", color: "#10A37F" };
+    case "imagegen":
+      return {
+        letter: "R",
+        color: "#000000",
+        svg: RUNWAY_SVG,
+        darkSvg: RUNWAY_SVG_DARK,
+      };
     default:
       return { letter: "M", color: "#8E8EA0" };
   }

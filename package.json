@@ -59,6 +59,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
     "@op-engineering/op-sqlite": "14.1.4",
+    "@petamoriken/float16": "^3.9.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-rag/op-sqlite": "^0.2.0",
     "@react-navigation/bottom-tabs": "^7.15.5",
@@ -76,6 +77,7 @@
     "expo-glass-effect": "~55.0.10",
     "expo-image-manipulator": "~55.0.13",
     "expo-image-picker": "~55.0.16",
+    "expo-media-library": "~55.0.16",
     "expo-splash-screen": "~55.0.15",
     "expo-status-bar": "~55.0.5",
     "llama.rn": "github:zhi-x-ye/llama.rn#9b3f2b1f026f8da84c66da8138423c25ae7a1d51",

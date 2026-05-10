@@ -17,7 +17,9 @@ import {
 } from './src/components/AppBootScreen';
 import { LlamaContext } from './src/context/LlamaContext';
 import { FileRagProvider } from './src/context/FileRagContext';
+import { ImageGenContext } from './src/context/ImageGenContext';
 import { useLlama } from './src/hooks/useLlama';
+import { useImageGen } from './src/hooks/useImageGen';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import {
@@ -75,6 +77,7 @@ interface StartupLoadCandidate {
 
 export default function App(): React.JSX.Element {
   const llama = useLlama();
+  const imageGen = useImageGen();
   const { loadModel } = llama;
   const [appReady, setAppReady] = useState(false);
   const [startupLoadCandidate, setStartupLoadCandidate] = useState<
@@ -251,13 +254,15 @@ export default function App(): React.JSX.Element {
       <ThemeProvider>
         <KeyboardProvider>
           <LlamaContext.Provider value={llama}>
-            <FileRagProvider>
-              <AppContent
-                appReady={appReady}
-                startupHasModelCandidate={startupLoadCandidate !== null}
-                startupAutoloadPending={startupAutoloadPending}
-              />
-            </FileRagProvider>
+            <ImageGenContext.Provider value={imageGen}>
+              <FileRagProvider>
+                <AppContent
+                  appReady={appReady}
+                  startupHasModelCandidate={startupLoadCandidate !== null}
+                  startupAutoloadPending={startupAutoloadPending}
+                />
+              </FileRagProvider>
+            </ImageGenContext.Provider>
           </LlamaContext.Provider>
         </KeyboardProvider>
       </ThemeProvider>

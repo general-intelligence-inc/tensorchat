@@ -13,6 +13,7 @@ import {
   TextInput,
   Keyboard,
   InteractionManager,
+  Platform,
   Pressable,
   TouchableOpacity,
   FlatList,
@@ -45,6 +46,7 @@ import { ChatEmptyState } from "../components/ChatEmptyState";
 import { CameraCaptureModal } from "../components/CameraCaptureModal";
 import { ModelCatalogScreen } from "../screens/ModelCatalogScreen";
 import { FileVaultScreen } from "../screens/FileVaultScreen";
+import { ImageGenScreen } from "../screens/ImageGenScreen";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
 import { LlamaContext } from "../context/LlamaContext";
@@ -2251,6 +2253,7 @@ export function ChatScreen({
   const [renameDraftTitle, setRenameDraftTitle] = useState("");
   const [modelCatalogVisible, setModelCatalogVisible] = useState(false);
   const [fileVaultVisible, setFileVaultVisible] = useState(false);
+  const [imageGenVisible, setImageGenVisible] = useState(false);
   const catalogInitialTabRef = useRef<ModelCatalogTab>("0.8B");
   const pendingModelCatalogOpenTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
   const pendingFileVaultOpenTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
@@ -3063,6 +3066,20 @@ export function ChatScreen({
       setFileVaultVisible(true);
     });
   }, [attachMenuOpen, closeAttachMenu, fileVaultVisible, modelPickerVisible, sidebarOpen]);
+
+  const closeImageGen = useCallback(() => {
+    setImageGenVisible(false);
+  }, []);
+
+  const openImageGen = useCallback(() => {
+    if (imageGenVisible) return;
+    if (sidebarOpen) {
+      setSidebarOpen(false);
+    }
+    Keyboard.dismiss();
+    inputRef.current?.blur();
+    setImageGenVisible(true);
+  }, [imageGenVisible, sidebarOpen]);
 
   useEffect(() => {
     return () => {
@@ -5717,6 +5734,29 @@ export function ChatScreen({
         </View>
       </Modal>
 
+      {/* Image Generation Modal — iOS only */}
+      <Modal
+        visible={imageGenVisible}
+        animationType="slide"
+        transparent
+        presentationStyle="overFullScreen"
+        onRequestClose={closeImageGen}
+      >
+        <View style={styles.modalScreen}>
+          <SafeAreaProvider>
+            {imageGenVisible && (
+              <ImageGenScreen
+                onClose={closeImageGen}
+                onOpenCatalog={() => {
+                  closeImageGen();
+                  openModelCatalog("imagegen");
+                }}
+              />
+            )}
+          </SafeAreaProvider>
+        </View>
+      </Modal>
+
       <View style={styles.drawerShell}>
         <Sidebar
           width={sidebarWidth}
@@ -5731,10 +5771,11 @@ export function ChatScreen({
           onOpenFileVault={openFileVault}
           onOpenTranslation={openTranslationMode}
           onOpenMiniApps={openMiniAppMode}
+          onOpenImageGen={openImageGen}
           onOpenModelCatalog={openDefaultModelCatalog}
           onManageModels={openManageModels}
           onDeleteAllChats={deleteAllChats}
-          activeMode={activeChatMode}
+          activeMode={imageGenVisible ? "imagegen" : activeChatMode}
           onClose={closeSidebar}
         />
 

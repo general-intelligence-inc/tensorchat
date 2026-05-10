@@ -1,3 +1,9 @@
+// Install the Float16Array polyfill before *anything* else loads. The image
+// generation feature (`onnxruntime-react-native` + nmkd FP16 SD 1.5) needs
+// this in scope before ORT's module init runs. See float16Polyfill.ts for
+// the full context.
+import './src/imagegen/float16Polyfill';
+
 import React from 'react';
 import { registerRootComponent } from 'expo';
 import {

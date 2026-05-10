@@ -47,6 +47,7 @@ Always treat `app.json` and `package.json` as canonical for runtime/platform fac
 | Web search tool (DuckDuckGo) | `src/agent/tools/webSearch.ts`, `src/utils/webSearch.ts` |
 | File Vault / RAG (document ingestion + vector search) | `src/hooks/useFileRag.ts`, `src/context/FileRagContext.tsx`, `src/screens/FileVaultScreen.tsx` |
 | On-device embeddings (EmbeddingGemma) | `src/hooks/useEmbeddingModelAsset.ts` |
+| Image generation (ONNX Runtime, iOS + Android) | `src/hooks/useImageGen.ts`, `src/imagegen/{clipTokenizer,ddimScheduler,bitmapWriter}.ts`, `src/context/ImageGenContext.ts`, `src/screens/ImageGenScreen.tsx`, `src/screens/ImageGenHome.tsx` |
 
 ### Current model matrix
 
@@ -58,7 +59,8 @@ Always treat `app.json` and `package.json` as canonical for runtime/platform fac
 - Mini-app eligible models: Qwen 3.5 4B Q4_K_M (95% e2e), Gemma 4 E2B Q4_K_M (76% e2e), Nemotron 3 Nano, Bonsai 8B
 - Embedding model: EmbeddingGemma 300M (Q4_0) for File Vault
 - Translation models: EuroLLM 1.7B Q4, TranslateGemma 4B Q3
-- Model metadata is generated via `buildModels()` in `src/constants/models.ts`
+- Image-generation models (cross-platform via ONNX Runtime): Stable Diffusion 1.5 ONNX FP16 (`nmkd/stable-diffusion-1.5-onnx-fp16`) — ~2 GB total bundle (UNet + external weights blob + VAE decoder + CLIP text encoder + tokenizer). DDIM sampler at ~20 steps for v1.
+- Model metadata is generated via `buildModels()` in `src/constants/models.ts`; image-gen entries use the `assetFiles` field on `ModelConfig` to enumerate the UNet/VAE/text-encoder/tokenizer files that ship together
 
 ---
 
@@ -268,6 +270,19 @@ Why: avoids excessive allocations/re-renders and keeps scroll behavior stable.
 - Vector storage uses op-sqlite with SQLiteVec extension.
 - Per-chat source management with enable/disable toggles.
 
+### 11) Image generation pattern (cross-platform, ONNX Runtime)
+
+- Image generation runs through `onnxruntime-react-native` — the same dependency already bundled for EmbeddingGemma + Kokoro TTS. No new native module; the diffusion sampler loop lives in TypeScript under `src/imagegen/`. Works on both iOS and Android.
+- The hook (`src/hooks/useImageGen.ts`) opens three ORT `InferenceSession`s — text encoder (CLIP-ViT-L/14), UNet, VAE decoder — plus a CLIP BPE tokenizer loaded from disk via `loadClipTokenizer()`. `ImageGenContext` is provided in `App.tsx` between `LlamaContext.Provider` and `FileRagProvider`.
+- The CLIP tokenizer (`src/imagegen/clipTokenizer.ts`) is a from-scratch implementation of OpenAI's byte-level BPE; vocab.json + merges.txt are downloaded as part of the model bundle. Outputs `BigInt64Array(77)` `input_ids`.
+- The sampler (`src/imagegen/ddimScheduler.ts`) is DDIM with epsilon prediction, eta=0, scaled-linear beta schedule (β_start=0.00085, β_end=0.012, T=1000). Defaults to 20 inference steps; CFG scale 7.5.
+- The pipeline per `generate()` call: encode prompt → encode negative prompt → init random latents (seeded LCG + Box-Muller) → for each timestep run UNet twice (cond + uncond), apply CFG, take DDIM step → divide latents by `VAE_SCALING_FACTOR=0.18215` → run VAE decoder → BMP output to disk.
+- Output is written as **24-bit BMP** via `src/imagegen/bitmapWriter.ts`. BMP is an intentional v1 simplification — both UIImage (iOS) and BitmapFactory (Android) decode it natively, and BMP encoding requires no zlib/CRC32/deflate dependencies. PNG upgrade is a follow-up.
+- Diffusion models are multi-file bundles: `ModelConfig.assetFiles` enumerates the sidecars (UNet external weights `weights.pb`, VAE decoder, text encoder, tokenizer files). `modelDownloadManager.runModelDownload` drives a single weighted-progress loop over `listModelAssetFiles(model)`. Files live under `${MODELS_DIR}/${filename}` with `mkdir -p` for nested paths.
+- Generated images persist to `${DocumentDirectoryPath}/imagegen/<id>.bmp` with an AsyncStorage gallery index at `imagegen:gallery` (see `src/utils/imageGenStorage.ts`).
+- "Send to chat" pushes the generated image into the chat-mode active thread as a user `Message` with `imageDisplayUri: file://<path>` (see `handleSendImageToChat` in `ChatScreen.tsx`).
+- All inference runs on the **CPU execution provider** for v1. CoreML (iOS) / NNAPI (Android) acceleration is a follow-up; SD 1.5 has ops those providers don't fully cover, so adopting them needs partial-fallback handling.
+
 ---
 
 ## Skill Routing Matrix (Project-Relevant)
@@ -365,6 +380,11 @@ Notes:
 | Mini-app validation pipeline | `src/miniapps/pipelineCore.ts`, `src/miniapps/validator/` |
 | File Vault / RAG | `src/hooks/useFileRag.ts`, `src/context/FileRagContext.tsx`, `src/screens/FileVaultScreen.tsx` |
 | Web search tool | `src/agent/tools/webSearch.ts`, `src/utils/webSearch.ts` |
+| Image generation hook + context | `src/hooks/useImageGen.ts`, `src/context/ImageGenContext.ts` |
+| Image generation diffusion sampler / tokenizer / encoder | `src/imagegen/ddimScheduler.ts`, `src/imagegen/clipTokenizer.ts`, `src/imagegen/bitmapWriter.ts` |
+| Image generation screens | `src/screens/ImageGenScreen.tsx`, `src/screens/ImageGenHome.tsx` |
+| Image generation storage / gallery index | `src/utils/imageGenStorage.ts`, `src/types/imageGen.ts` |
+| Image generation model registry / multi-file diffusion bundles | `IMAGE_GEN_MODELS` and `assetFiles` field in `src/constants/models.ts` |
 
 ---
 

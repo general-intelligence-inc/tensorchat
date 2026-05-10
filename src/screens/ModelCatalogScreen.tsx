@@ -15,6 +15,7 @@ import {
   Alert,
   ActivityIndicator,
   PanResponder,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as FileSystem from "expo-file-system/legacy";
@@ -27,6 +28,7 @@ import {
   CHAT_MODEL_FAMILIES,
   EMBEDDING_MODEL,
   TRANSLATION_MODELS,
+  IMAGE_GEN_MODELS,
   Quantization,
   ModelConfig,
   ModelCatalogTab,
@@ -36,6 +38,7 @@ import {
   getModelById,
   getTranslationModelByPath,
   isLikelyCompleteModelFile,
+  listModelAssetFiles,
   QUANTIZATION_DISPLAY_LABELS,
   getModelBrandBadge,
 } from "../constants/models";
@@ -129,6 +132,12 @@ const ADDON_OPTIONS: Array<{
   subtitle: string;
   badge: string;
 }> = [
+  {
+    id: "imagegen",
+    title: "SD 1.5",
+    subtitle: "Image generation",
+    badge: "Add-on",
+  },
   {
     id: "voice",
     title: "Voice",
@@ -852,6 +861,8 @@ export function ModelCatalogScreen({
   );
   const [downloadedTranslationModels, setDownloadedTranslationModels] =
     useState<Set<string>>(new Set());
+  const [downloadedImageGenModels, setDownloadedImageGenModels] =
+    useState<Set<string>>(new Set());
   const [downloadState, setDownloadState] = useState<ModelDownloadState>(
     getModelDownloadState,
   );
@@ -883,6 +894,7 @@ export function ModelCatalogScreen({
   const selectedChatModels =
     selectedBase === "embedding" ||
     selectedBase === "translation" ||
+    selectedBase === "imagegen" ||
     selectedBase === "voice" ||
     selectedBase === "downloaded"
       ? []
@@ -942,6 +954,37 @@ export function ModelCatalogScreen({
     }
   }, []);
 
+  const refreshImageGenDownloaded = useCallback(async (): Promise<
+    Set<string>
+  > => {
+    try {
+      await ensureModelsDir();
+      const downloaded = new Set<string>();
+      for (const model of IMAGE_GEN_MODELS) {
+        const files = listModelAssetFiles(model);
+        let allPresent = true;
+        for (const file of files) {
+          const info = await FileSystem.getInfoAsync(
+            modelFilePath(file.filename),
+          );
+          if (!info.exists) {
+            allPresent = false;
+            break;
+          }
+        }
+        if (allPresent) {
+          downloaded.add(model.id);
+        }
+      }
+      setDownloadedImageGenModels(downloaded);
+      return downloaded;
+    } catch (err) {
+      console.warn("Failed to scan image-gen models:", err);
+      setDownloadedImageGenModels(new Set());
+      return new Set();
+    }
+  }, []);
+
   const refreshTranslationDownloaded = useCallback(async (): Promise<
     Set<string>
   > => {
@@ -978,6 +1021,7 @@ export function ModelCatalogScreen({
     async function init() {
       await scanDownloaded();
       await refreshTranslationDownloaded();
+      await refreshImageGenDownloaded();
       const saved = await AsyncStorage.getItem(SELECTED_MODEL_KEY);
       if (saved) {
         setSelectedModelId(saved);
@@ -988,7 +1032,7 @@ export function ModelCatalogScreen({
       }
     }
     init();
-  }, [refreshTranslationDownloaded, scanDownloaded]);
+  }, [refreshImageGenDownloaded, refreshTranslationDownloaded, scanDownloaded]);
 
   useEffect(() => {
     return subscribeToModelDownloadState(setDownloadState);
@@ -1008,6 +1052,10 @@ export function ModelCatalogScreen({
       if (downloadedModel?.catalogKind === "translation") {
         void refreshTranslationDownloaded();
         onChatModelsChanged?.();
+      }
+
+      if (downloadedModel?.catalogKind === "imagegen") {
+        void refreshImageGenDownloaded();
       }
 
       clearModelDownloadState();
@@ -1030,6 +1078,7 @@ export function ModelCatalogScreen({
   }, [
     downloadState,
     onChatModelsChanged,
+    refreshImageGenDownloaded,
     refreshTranslationDownloaded,
     scanDownloaded,
   ]);
@@ -1151,6 +1200,63 @@ export function ModelCatalogScreen({
       );
     },
     [loadedTranslationModelPath, onChatModelsChanged, unloadTranslationModel],
+  );
+
+  const downloadImageGenModel = useCallback(
+    (modelToDownload: ModelConfig) => {
+      if (downloadState.status === "downloading") {
+        return;
+      }
+      const blockedReason = getModelMemoryBlockReason(
+        modelToDownload,
+        deviceTotalMemoryBytes,
+      );
+      if (blockedReason) {
+        Alert.alert(
+          "Not enough RAM",
+          `${modelToDownload.name} cannot be downloaded on this device. ${blockedReason}`,
+        );
+        return;
+      }
+      void downloadCatalogModelInBackground(modelToDownload).catch(() => {});
+    },
+    [deviceTotalMemoryBytes, downloadState.status],
+  );
+
+  const deleteImageGenModel = useCallback(
+    (model: ModelConfig) => {
+      Alert.alert(
+        "Delete image model",
+        `Delete ${model.name}? You will need to re-download all of its files.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                const files = listModelAssetFiles(model);
+                for (const file of files) {
+                  await FileSystem.deleteAsync(modelFilePath(file.filename), {
+                    idempotent: true,
+                  });
+                }
+                setDownloadedImageGenModels((prev) => {
+                  const next = new Set(prev);
+                  next.delete(model.id);
+                  return next;
+                });
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : String(err);
+                Alert.alert("Error", message);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [],
   );
 
   const toggleSelectForDeletion = useCallback((modelId: string) => {
@@ -1840,6 +1946,52 @@ export function ModelCatalogScreen({
                     onDownload={handleDownloadEmbeddingModel}
                     onDelete={handleDeleteEmbeddingModel}
                   />
+                </View>
+              )}
+
+              {/* Inline expanded content for image generation */}
+              {item.id === "imagegen" && isExpanded && (
+                <View style={styles.catalogCardBody}>
+                  {IMAGE_GEN_MODELS.map((model, idx) => {
+                    const totalSizeGB =
+                      model.sizeGB +
+                      (model.assetFiles?.reduce(
+                        (sum, f) => sum + f.sizeGB,
+                        0,
+                      ) ?? 0);
+                    const isDownloaded = downloadedImageGenModels.has(model.id);
+                    return (
+                      <React.Fragment key={model.id}>
+                        {idx > 0 && <View style={styles.quantDivider} />}
+                        <ManagedAssetRow
+                          style={styles.quantSwipeContainer}
+                          title={model.name}
+                          subtitle={model.description}
+                          sizeLabel={formatManagedAssetSizeLabel(totalSizeGB)}
+                          badge={
+                            model.recommended
+                              ? "Recommended"
+                              : model.fast
+                                ? "Fast"
+                                : undefined
+                          }
+                          isDownloaded={isDownloaded}
+                          downloadProgress={
+                            downloadProgress?.modelId === model.id
+                              ? downloadProgress.progress
+                              : null
+                          }
+                          disabled={
+                            !isDownloaded &&
+                            downloadState.status === "downloading" &&
+                            downloadProgress?.modelId !== model.id
+                          }
+                          onDownload={() => downloadImageGenModel(model)}
+                          onDelete={() => deleteImageGenModel(model)}
+                        />
+                      </React.Fragment>
+                    );
+                  })}
                 </View>
               )}
 
