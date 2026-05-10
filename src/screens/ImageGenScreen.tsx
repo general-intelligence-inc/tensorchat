@@ -35,7 +35,10 @@ import { ImageGenHome } from "./ImageGenHome";
 import RNFS from "react-native-fs";
 
 interface ImageGenScreenProps {
-  onClose: () => void;
+  /** Tapped in the home sub-view's left slot — opens the chat sidebar.
+   * Required when this screen is rendered as a top-level ChatMode (image
+   * gen has no global ChatHeader to host the menu button). */
+  onMenuPress: () => void;
   /** Called when the user opens model catalog from the empty/error state. */
   onOpenCatalog?: () => void;
 }
@@ -68,7 +71,7 @@ async function listDownloaded(): Promise<ModelConfig[]> {
 }
 
 export function ImageGenScreen({
-  onClose,
+  onMenuPress,
   onOpenCatalog,
 }: ImageGenScreenProps): React.JSX.Element {
   const { colors } = useTheme();
@@ -225,13 +228,16 @@ export function ImageGenScreen({
   const renderHeader = () => (
     <View style={styles.header}>
       <TouchableOpacity
-        onPress={mode === "home" ? onClose : () => setMode("home")}
+        onPress={mode === "home" ? onMenuPress : () => setMode("home")}
         activeOpacity={0.8}
         style={styles.headerBtn}
       >
         <Ionicons
-          name={mode === "home" ? "close" : "chevron-back"}
-          size={20}
+          // Home sub-view: hamburger opens the sidebar (image gen is a
+          // top-level mode now, no parent ChatHeader to host the menu).
+          // Compose / detail: back arrow returns to the home sub-view.
+          name={mode === "home" ? "menu-outline" : "chevron-back"}
+          size={mode === "home" ? 22 : 20}
           color={colors.textSecondary}
         />
       </TouchableOpacity>

@@ -5792,7 +5792,7 @@ export function ChatScreen({
 
               {isImageGenMode ? (
                 <ImageGenScreen
-                  onClose={() => setActiveMode("chat")}
+                  onMenuPress={openSidebar}
                   onOpenCatalog={() => openModelCatalog("imagegen")}
                 />
               ) : isMiniAppMode && !miniAppHomeVisible ? (
@@ -6028,28 +6028,30 @@ export function ChatScreen({
             )}
           </KeyboardAvoidingView>
 
-          <ChatHeader
-            isLoading={isModelLoading}
-            isGenerating={isGenerating}
-            incognitoActive={isIncognitoActive}
-            loadedModelName={loadedModelName}
-            modelPickerVisible={modelPickerVisible}
-            chevronAnim={chevronAnim}
-            modelPillRef={modelPillRef}
-            topInset={insets.top}
-            onMenuPress={openSidebar}
-            onModelPillPress={handleShowModelPicker}
-            onStartIncognitoChat={startIncognitoChat}
-            onNewChat={newChat}
-            hideRightActions={isMiniAppMode}
-            // Home button only appears when we're actually inside a
-            // miniapp chat — no point showing it while already on the grid.
-            onHomePress={
-              isMiniAppMode && !miniAppHomeVisible
-                ? () => setMiniAppHomeVisible(true)
-                : undefined
-            }
-          />
+          {isImageGenMode ? null : (
+            <ChatHeader
+              isLoading={isModelLoading}
+              isGenerating={isGenerating}
+              incognitoActive={isIncognitoActive}
+              loadedModelName={loadedModelName}
+              modelPickerVisible={modelPickerVisible}
+              chevronAnim={chevronAnim}
+              modelPillRef={modelPillRef}
+              topInset={insets.top}
+              onMenuPress={openSidebar}
+              onModelPillPress={handleShowModelPicker}
+              onStartIncognitoChat={startIncognitoChat}
+              onNewChat={newChat}
+              hideRightActions={isMiniAppMode}
+              // Home button only appears when we're actually inside a
+              // miniapp chat — no point showing it while already on the grid.
+              onHomePress={
+                isMiniAppMode && !miniAppHomeVisible
+                  ? () => setMiniAppHomeVisible(true)
+                  : undefined
+              }
+            />
+          )}
 
           {sidebarOpen ? (
             <>
