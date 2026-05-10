@@ -230,11 +230,16 @@ const DEFAULT_SETTINGS: ChatSettings = {
 const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful AI assistant. Be accurate, honest, and concise.";
 
-type ChatMode = "chat" | "translation" | "miniapp";
+type ChatMode = "chat" | "translation" | "miniapp" | "imagegen";
 type ChatSelectionState = Record<ChatMode, string | null>;
 
 function isChatMode(value: unknown): value is ChatMode {
-  return value === "chat" || value === "translation" || value === "miniapp";
+  return (
+    value === "chat" ||
+    value === "translation" ||
+    value === "miniapp" ||
+    value === "imagegen"
+  );
 }
 type TranslationLanguageCode =
   | "auto"
@@ -322,6 +327,7 @@ const DEFAULT_MODE_CHAT_SELECTION: ChatSelectionState = {
   chat: null,
   translation: null,
   miniapp: null,
+  imagegen: null,
 };
 
 function buildFallbackTranslationLanguagePair(
@@ -515,6 +521,9 @@ function makeDefaultModeDrafts(): Record<ChatMode, Chat> {
     chat: makeNewChat("chat"),
     translation: makeNewChat("translation"),
     miniapp: makeNewChat("miniapp"),
+    // image-gen has no chat threads (gallery-only) but ChatMode is a
+    // Record union — keep a placeholder so the type holds.
+    imagegen: makeNewChat("chat"),
   };
 }
 
@@ -2065,6 +2074,9 @@ export function ChatScreen({
           )
             ? prev.miniapp
             : null,
+        // image-gen mode has no chat threads (the gallery is the store);
+        // this slot stays null and is never read.
+        imagegen: null,
       };
 
       return next.chat === prev.chat
@@ -2253,12 +2265,10 @@ export function ChatScreen({
   const [renameDraftTitle, setRenameDraftTitle] = useState("");
   const [modelCatalogVisible, setModelCatalogVisible] = useState(false);
   const [fileVaultVisible, setFileVaultVisible] = useState(false);
-  const [imageGenVisible, setImageGenVisible] = useState(false);
-  // When the user taps "Open catalog" from inside image gen, we close
-  // image gen first (iOS Modal stacking limitation: a UIViewController
-  // can present only one Modal at a time) and set this flag so the
-  // catalog's close handler re-presents image gen on its way out.
-  const reopenImageGenAfterCatalogRef = useRef(false);
+  // Image gen is a first-class ChatMode (`activeMode === "imagegen"`) like
+  // chat / translation / miniapp — rendered inline in the main pane rather
+  // than as a Modal overlay. This avoids the iOS Modal-on-Modal limitation
+  // when the user opens the catalog from inside image gen.
   const catalogInitialTabRef = useRef<ModelCatalogTab>("0.8B");
   const pendingModelCatalogOpenTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
   const pendingFileVaultOpenTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
@@ -2998,17 +3008,6 @@ export function ChatScreen({
     setModelCatalogVisible(false);
     syncVoiceModelDownloadState();
 
-    // If the user came from image gen, re-present it after the catalog
-    // finishes dismissing. Deferred via InteractionManager so the catalog
-    // animation completes before we trigger the image-gen present —
-    // otherwise iOS can drop the new presentation while still tearing
-    // down the previous Modal.
-    if (reopenImageGenAfterCatalogRef.current) {
-      reopenImageGenAfterCatalogRef.current = false;
-      InteractionManager.runAfterInteractions(() => {
-        setImageGenVisible(true);
-      });
-    }
   }, [syncVoiceModelDownloadState]);
 
   const openModelCatalog = useCallback(
@@ -3084,19 +3083,14 @@ export function ChatScreen({
     });
   }, [attachMenuOpen, closeAttachMenu, fileVaultVisible, modelPickerVisible, sidebarOpen]);
 
-  const closeImageGen = useCallback(() => {
-    setImageGenVisible(false);
-  }, []);
-
   const openImageGen = useCallback(() => {
-    if (imageGenVisible) return;
     if (sidebarOpen) {
       setSidebarOpen(false);
     }
     Keyboard.dismiss();
     inputRef.current?.blur();
-    setImageGenVisible(true);
-  }, [imageGenVisible, sidebarOpen]);
+    setActiveMode("imagegen");
+  }, [sidebarOpen]);
 
   useEffect(() => {
     return () => {
@@ -5363,6 +5357,7 @@ export function ChatScreen({
   ]);
 
   const isMiniAppMode = activeChatMode === "miniapp";
+  const isImageGenMode = activeChatMode === "imagegen";
 
   // Which Gemma E2B model (if any) is currently loaded in the chat slot —
   // used to compute the MiniAppHome status banner and to gate send in
@@ -5751,36 +5746,6 @@ export function ChatScreen({
         </View>
       </Modal>
 
-      {/* Image Generation Modal — iOS only */}
-      <Modal
-        visible={imageGenVisible}
-        animationType="slide"
-        transparent
-        presentationStyle="overFullScreen"
-        onRequestClose={closeImageGen}
-      >
-        <View style={styles.modalScreen}>
-          <SafeAreaProvider>
-            {imageGenVisible && (
-              <ImageGenScreen
-                onClose={closeImageGen}
-                onOpenCatalog={() => {
-                  // iOS only allows one Modal presented at a time — sibling
-                  // Modals don't stack reliably. So close image gen first,
-                  // set the reopen flag, then open catalog. When the user
-                  // dismisses the catalog (or after auto-close on imagegen
-                  // download completion), closeModelCatalog re-presents
-                  // image gen.
-                  reopenImageGenAfterCatalogRef.current = true;
-                  closeImageGen();
-                  openModelCatalog("imagegen");
-                }}
-              />
-            )}
-          </SafeAreaProvider>
-        </View>
-      </Modal>
-
       <View style={styles.drawerShell}>
         <Sidebar
           width={sidebarWidth}
@@ -5799,7 +5764,7 @@ export function ChatScreen({
           onOpenModelCatalog={openDefaultModelCatalog}
           onManageModels={openManageModels}
           onDeleteAllChats={deleteAllChats}
-          activeMode={imageGenVisible ? "imagegen" : activeChatMode}
+          activeMode={activeChatMode}
           onClose={closeSidebar}
         />
 
@@ -5825,7 +5790,12 @@ export function ChatScreen({
                 </View>
               ) : null}
 
-              {isMiniAppMode && !miniAppHomeVisible ? (
+              {isImageGenMode ? (
+                <ImageGenScreen
+                  onClose={() => setActiveMode("chat")}
+                  onOpenCatalog={() => openModelCatalog("imagegen")}
+                />
+              ) : isMiniAppMode && !miniAppHomeVisible ? (
                 <MiniAppChatView
                   topInset={insets.top}
                   entry={
@@ -5992,7 +5962,7 @@ export function ChatScreen({
               />
             )}
 
-            {isMiniAppMode && miniAppHomeVisible ? null : (
+            {(isMiniAppMode && miniAppHomeVisible) || isImageGenMode ? null : (
             <ChatInput
               inputRef={inputRef}
               mode={activeChatMode}
@@ -6102,7 +6072,11 @@ export function ChatScreen({
 
       <ModelPickerDropdown
         visible={modelPickerVisible}
-        mode={activeChatMode}
+        // ModelPickerDropdown only exists for the chat-style modes — image
+        // gen has its own model chip UI inside ImageGenScreen and never
+        // surfaces this dropdown. Fall back to "chat" so the prop's
+        // narrower union still type-checks when activeMode is "imagegen".
+        mode={isImageGenMode ? "chat" : activeChatMode}
         onClose={handleHideModelPicker}
         onOpenModelCatalog={openCurrentModeModelCatalog}
         anchorRef={modelPillRef}
