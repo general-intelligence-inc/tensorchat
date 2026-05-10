@@ -22,9 +22,13 @@ export function getDeviceTotalMemoryBytes(): number | null {
 }
 
 export function getEstimatedModelMemoryBytes(
-  model: Pick<ModelConfig, "sizeGB" | "mmprojSizeGB">,
+  model: Pick<ModelConfig, "sizeGB" | "mmprojSizeGB" | "runtimeMemoryGB">,
 ): number {
-  return Math.round((model.sizeGB + (model.mmprojSizeGB ?? 0)) * BYTES_PER_GIB);
+  // Prefer the explicit runtime override when it's set — diffusion / ONNX
+  // models declare a tiny graph file but need GBs of resident memory.
+  // Otherwise fall back to "weights on disk" as a proxy (correct for GGUF).
+  const sizeGB = model.runtimeMemoryGB ?? model.sizeGB + (model.mmprojSizeGB ?? 0);
+  return Math.round(sizeGB * BYTES_PER_GIB);
 }
 
 export function getDeviceModelMemoryLimitBytes(
@@ -38,7 +42,7 @@ export function getDeviceModelMemoryLimitBytes(
 }
 
 export function getModelMemoryEligibility(
-  model: Pick<ModelConfig, "sizeGB" | "mmprojSizeGB">,
+  model: Pick<ModelConfig, "sizeGB" | "mmprojSizeGB" | "runtimeMemoryGB">,
   totalMemoryBytes: number | null = getDeviceTotalMemoryBytes(),
 ): ModelMemoryEligibility {
   const requiredBytes = getEstimatedModelMemoryBytes(model);
@@ -53,7 +57,7 @@ export function getModelMemoryEligibility(
 }
 
 export function isModelAllowedByDeviceMemory(
-  model: Pick<ModelConfig, "sizeGB" | "mmprojSizeGB">,
+  model: Pick<ModelConfig, "sizeGB" | "mmprojSizeGB" | "runtimeMemoryGB">,
   totalMemoryBytes: number | null = getDeviceTotalMemoryBytes(),
 ): boolean {
   return getModelMemoryEligibility(model, totalMemoryBytes).allowed;
@@ -73,7 +77,7 @@ export function formatMemoryBytes(bytes: number): string {
 }
 
 export function getModelMemoryBlockReason(
-  model: Pick<ModelConfig, "sizeGB" | "mmprojSizeGB">,
+  model: Pick<ModelConfig, "sizeGB" | "mmprojSizeGB" | "runtimeMemoryGB">,
   totalMemoryBytes: number | null = getDeviceTotalMemoryBytes(),
 ): string | null {
   const eligibility = getModelMemoryEligibility(model, totalMemoryBytes);

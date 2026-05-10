@@ -82,6 +82,14 @@ export interface ModelConfig {
   recommended?: boolean;
   fast?: boolean;
   minimumBytes?: number;
+  /**
+   * Optional override for the runtime RAM the model needs while loaded.
+   * Defaults to `sizeGB + mmprojSizeGB` (file size on disk), which is a
+   * good proxy for GGUF chat models where weights = file. ONNX diffusion
+   * models declare a tiny graph file (~1 MB) but actually need several
+   * GB of resident memory once loaded — set this explicitly for those.
+   */
+  runtimeMemoryGB?: number;
   mmprojFilename?: string;
   mmprojUrl?: string;
   mmprojSizeGB?: number;
@@ -613,6 +621,11 @@ export const SD_15_ONNX_MODEL: ModelConfig = {
   filename: "sd15-onnx/unet/model.onnx",
   downloadUrl: `${SD_15_ONNX_BASE_URL}/unet/model.onnx`,
   sizeGB: 0.0012,
+  // SD 1.5 ONNX peaks at ~3.5 GB resident (UNet ~1.7 GB FP16 + VAE
+  // decoder ~200 MB + text encoder ~500 MB + working tensors). With the
+  // 50 % MODEL_RAM_LIMIT_RATIO this blocks 6 GB devices (iPhone 14 Pro
+  // Max and earlier crashed during load on those) and allows 8 GB+.
+  runtimeMemoryGB: 3.5,
   quantization: "BF16",
   baseModel: "imagegen",
   supportsThinking: false,
