@@ -2254,6 +2254,11 @@ export function ChatScreen({
   const [modelCatalogVisible, setModelCatalogVisible] = useState(false);
   const [fileVaultVisible, setFileVaultVisible] = useState(false);
   const [imageGenVisible, setImageGenVisible] = useState(false);
+  // When the user taps "Open catalog" from inside image gen, we close
+  // image gen first (iOS Modal stacking limitation: a UIViewController
+  // can present only one Modal at a time) and set this flag so the
+  // catalog's close handler re-presents image gen on its way out.
+  const reopenImageGenAfterCatalogRef = useRef(false);
   const catalogInitialTabRef = useRef<ModelCatalogTab>("0.8B");
   const pendingModelCatalogOpenTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
   const pendingFileVaultOpenTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
@@ -2992,6 +2997,18 @@ export function ChatScreen({
     catalogInitialTabRef.current = "0.8B";
     setModelCatalogVisible(false);
     syncVoiceModelDownloadState();
+
+    // If the user came from image gen, re-present it after the catalog
+    // finishes dismissing. Deferred via InteractionManager so the catalog
+    // animation completes before we trigger the image-gen present —
+    // otherwise iOS can drop the new presentation while still tearing
+    // down the previous Modal.
+    if (reopenImageGenAfterCatalogRef.current) {
+      reopenImageGenAfterCatalogRef.current = false;
+      InteractionManager.runAfterInteractions(() => {
+        setImageGenVisible(true);
+      });
+    }
   }, [syncVoiceModelDownloadState]);
 
   const openModelCatalog = useCallback(
@@ -5748,10 +5765,14 @@ export function ChatScreen({
               <ImageGenScreen
                 onClose={closeImageGen}
                 onOpenCatalog={() => {
-                  // Stack the catalog modal on top of image gen rather
-                  // than closing image gen first. After the user finishes
-                  // (or cancels) the download, dismissing the catalog
-                  // returns them to the image gen screen automatically.
+                  // iOS only allows one Modal presented at a time — sibling
+                  // Modals don't stack reliably. So close image gen first,
+                  // set the reopen flag, then open catalog. When the user
+                  // dismisses the catalog (or after auto-close on imagegen
+                  // download completion), closeModelCatalog re-presents
+                  // image gen.
+                  reopenImageGenAfterCatalogRef.current = true;
+                  closeImageGen();
                   openModelCatalog("imagegen");
                 }}
               />
