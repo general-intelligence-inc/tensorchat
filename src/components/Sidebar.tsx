@@ -22,6 +22,12 @@ import * as FileSystem from "expo-file-system/legacy";
 import { ColorPalette, FONT, RADII, SPACING } from "../constants/theme";
 import { ThemePreference, useTheme } from "../context/ThemeContext";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
+import appJson from "../../app.json";
+
+// Pull the app version straight from app.json so the displayed version in
+// Settings stays in lockstep with the canonical source. Avoids adding an
+// expo-constants / expo-application native dep just for one string.
+const APP_VERSION = appJson.expo.version;
 
 const DEFAULT_SIDEBAR_WIDTH = 320;
 const MODELS_DIR = (FileSystem.documentDirectory ?? "") + "models/";
@@ -925,7 +931,7 @@ function SidebarComponent({
               <View style={styles.settingsRow}>
                 <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
                 <Text style={styles.settingsRowText}>Version</Text>
-                <Text style={styles.settingsVersionText}>1.4.8</Text>
+                <Text style={styles.settingsVersionText}>{APP_VERSION}</Text>
               </View>
             </View>
           </Pressable>
