@@ -222,7 +222,9 @@ export function ManagedAssetRow({
                     <Text style={styles.recommendedBadge}>{badge}</Text>
                   ) : null}
                 </View>
-                <Text style={styles.subtitle}>{subtitle}</Text>
+                {subtitle ? (
+                  <Text style={styles.subtitle}>{subtitle}</Text>
+                ) : null}
               </View>
 
               <View style={styles.right}>

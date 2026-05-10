@@ -614,7 +614,7 @@ const SD_15_ONNX_BASE_URL =
 export const SD_15_ONNX_MODEL: ModelConfig = {
   id: SD_15_ONNX_MODEL_ID,
   name: "Stable Diffusion 1.5",
-  description: "Text-to-image",
+  description: "",
   huggingFaceRepo: SD_15_ONNX_REPO,
   // Primary file is the ONNX graph for the UNet. Its weights live in the
   // sibling `weights.pb` external-data file, listed in `assetFiles`.
