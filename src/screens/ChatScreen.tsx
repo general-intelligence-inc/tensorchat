@@ -5748,7 +5748,10 @@ export function ChatScreen({
               <ImageGenScreen
                 onClose={closeImageGen}
                 onOpenCatalog={() => {
-                  closeImageGen();
+                  // Stack the catalog modal on top of image gen rather
+                  // than closing image gen first. After the user finishes
+                  // (or cancels) the download, dismissing the catalog
+                  // returns them to the image gen screen automatically.
                   openModelCatalog("imagegen");
                 }}
               />

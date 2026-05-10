@@ -29,6 +29,7 @@ import {
   resolveImageGenPath,
   subscribeToGallery,
 } from "../utils/imageGenStorage";
+import { subscribeToModelDownloadState } from "../utils/modelDownloadManager";
 import type { ImageGenResult } from "../types/imageGen";
 import { ImageGenHome } from "./ImageGenHome";
 import RNFS from "react-native-fs";
@@ -82,7 +83,10 @@ export function ImageGenScreen({
   const [latestResult, setLatestResult] = useState<ImageGenResult | null>(null);
   const [detailItem, setDetailItem] = useState<ImageGenResult | null>(null);
 
-  // Hydrate gallery and downloaded-models on mount.
+  // Hydrate gallery and downloaded-models on mount, and refresh whenever
+  // a model download completes (e.g., the user just downloaded SD 1.5
+  // from the catalog modal stacked on top of this screen — when they
+  // dismiss it, we want the new model to be visible immediately).
   useEffect(() => {
     void loadGallery().then(setGallery);
     void listDownloaded().then((models) => {
@@ -91,9 +95,20 @@ export function ImageGenScreen({
         setSelectedModelId(models[0].id);
       }
     });
-    const unsub = subscribeToGallery(setGallery);
+    const unsubGallery = subscribeToGallery(setGallery);
+    const unsubDownload = subscribeToModelDownloadState((state) => {
+      if (state.status === "completed") {
+        void listDownloaded().then((models) => {
+          setDownloadedModels(models);
+          if (models.length > 0 && !selectedModelId) {
+            setSelectedModelId(models[0].id);
+          }
+        });
+      }
+    });
     return () => {
-      unsub();
+      unsubGallery();
+      unsubDownload();
     };
   }, [selectedModelId]);
 

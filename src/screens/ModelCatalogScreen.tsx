@@ -1061,6 +1061,22 @@ export function ModelCatalogScreen({
       clearModelDownloadState();
       void scanDownloaded();
 
+      // When the catalog was opened from the image-gen empty state
+      // (`initialTab === "imagegen"`), auto-dismiss after the imagegen
+      // model finishes downloading so the user lands back on the image
+      // gen screen (which is still open underneath this modal).
+      if (
+        downloadedModel?.catalogKind === "imagegen" &&
+        initialTab === "imagegen"
+      ) {
+        Alert.alert(
+          "Download complete",
+          `${downloadedModel.name} is ready to use.`,
+        );
+        onClose?.();
+        return;
+      }
+
       if (downloadedModel) {
         Alert.alert(
           "Download complete",
@@ -1077,7 +1093,9 @@ export function ModelCatalogScreen({
     }
   }, [
     downloadState,
+    initialTab,
     onChatModelsChanged,
+    onClose,
     refreshImageGenDownloaded,
     refreshTranslationDownloaded,
     scanDownloaded,
@@ -1960,13 +1978,30 @@ export function ModelCatalogScreen({
                         0,
                       ) ?? 0);
                     const isDownloaded = downloadedImageGenModels.has(model.id);
+                    // Pre-flight RAM eligibility — same check the
+                    // download manager runs on tap, surfaced visually
+                    // so the button is disabled on devices that can't
+                    // load the model (e.g. iPhone 14 Pro Max with 6 GB
+                    // for the 3.5 GB-resident SD 1.5 graph).
+                    const imageGenBlockedReason = getModelMemoryBlockReason(
+                      model,
+                      deviceTotalMemoryBytes,
+                    );
+                    const ramBlocked = !!imageGenBlockedReason;
+                    const downloadInFlightOther =
+                      downloadState.status === "downloading" &&
+                      downloadProgress?.modelId !== model.id;
                     return (
                       <React.Fragment key={model.id}>
                         {idx > 0 && <View style={styles.quantDivider} />}
                         <ManagedAssetRow
                           style={styles.quantSwipeContainer}
                           title={model.name}
-                          subtitle={model.description}
+                          subtitle={
+                            ramBlocked && !isDownloaded
+                              ? imageGenBlockedReason
+                              : model.description
+                          }
                           sizeLabel={formatManagedAssetSizeLabel(totalSizeGB)}
                           badge={
                             model.recommended
@@ -1982,9 +2017,7 @@ export function ModelCatalogScreen({
                               : null
                           }
                           disabled={
-                            !isDownloaded &&
-                            downloadState.status === "downloading" &&
-                            downloadProgress?.modelId !== model.id
+                            !isDownloaded && (ramBlocked || downloadInFlightOther)
                           }
                           onDownload={() => downloadImageGenModel(model)}
                           onDelete={() => deleteImageGenModel(model)}
