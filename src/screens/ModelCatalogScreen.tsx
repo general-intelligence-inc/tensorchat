@@ -2027,6 +2027,11 @@ export function ModelCatalogScreen({
                   })}
                 </View>
               )}
+              {item.id === "imagegen" && isExpanded && deviceMemorySummary ? (
+                <Text style={styles.deviceMemoryHint}>
+                  {deviceMemorySummary}
+                </Text>
+              ) : null}
 
               {/* Inline expanded content for downloaded */}
               {item.id === "downloaded" && isExpanded && (() => {
